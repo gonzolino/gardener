@@ -20,25 +20,23 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	corebackupentry "github.com/gardener/gardener/pkg/operation/botanist/component/backupentry"
-	extensionsbackupentry "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/backupentry"
-	"github.com/gardener/gardener/pkg/operation/common"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // DefaultCoreBackupEntry creates the default deployer for the core.gardener.cloud/v1beta1.BackupEntry resource.
-func (b *Botanist) DefaultCoreBackupEntry(gardenClient client.Client) component.DeployMigrateWaiter {
+func (b *Botanist) DefaultCoreBackupEntry() component.DeployMigrateWaiter {
 	ownerRef := metav1.NewControllerRef(b.Shoot.Info, gardencorev1beta1.SchemeGroupVersion.WithKind("Shoot"))
-	ownerRef.BlockOwnerDeletion = pointer.BoolPtr(false)
+	ownerRef.BlockOwnerDeletion = pointer.Bool(false)
 
 	return corebackupentry.New(
 		b.Logger,
-		gardenClient,
+		b.K8sGardenClient.Client(),
 		&corebackupentry.Values{
 			Namespace:      b.Shoot.Info.Namespace,
-			Name:           common.GenerateBackupEntryName(b.Shoot.Info.Status.TechnicalID, b.Shoot.Info.Status.UID),
+			Name:           gutil.GenerateBackupEntryName(b.Shoot.Info.Status.TechnicalID, b.Shoot.Info.Status.UID),
 			ShootPurpose:   b.Shoot.Info.Spec.Purpose,
 			OwnerReference: ownerRef,
 			SeedName:       b.Shoot.Info.Spec.SeedName,
@@ -46,21 +44,6 @@ func (b *Botanist) DefaultCoreBackupEntry(gardenClient client.Client) component.
 		},
 		corebackupentry.DefaultInterval,
 		corebackupentry.DefaultTimeout,
-	)
-}
-
-// DefaultExtensionsBackupEntry creates the default deployer for the extensions.gardener.cloud/v1alpha1.BackupEntry
-// custom resource.
-func (b *Botanist) DefaultExtensionsBackupEntry(seedClient client.Client) extensionsbackupentry.Interface {
-	return extensionsbackupentry.New(
-		b.Logger,
-		seedClient,
-		&extensionsbackupentry.Values{
-			Name: common.GenerateBackupEntryName(b.Shoot.Info.Status.TechnicalID, b.Shoot.Info.Status.UID),
-		},
-		extensionsbackupentry.DefaultInterval,
-		extensionsbackupentry.DefaultSevereThreshold,
-		extensionsbackupentry.DefaultTimeout,
 	)
 }
 

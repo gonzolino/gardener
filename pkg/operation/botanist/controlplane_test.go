@@ -20,6 +20,7 @@ import (
 
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	cr "github.com/gardener/gardener/pkg/chartrenderer"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	fakeclientset "github.com/gardener/gardener/pkg/client/kubernetes/fake"
@@ -29,6 +30,7 @@ import (
 	"github.com/gardener/gardener/pkg/operation"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	mockcontrolplane "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/controlplane/mock"
+	mockdnsrecord "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/dnsrecord/mock"
 	mockinfrastructure "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/infrastructure/mock"
 	"github.com/gardener/gardener/pkg/operation/garden"
 	"github.com/gardener/gardener/pkg/operation/shoot"
@@ -66,6 +68,8 @@ var _ = Describe("controlplane", func() {
 		infrastructure       *mockinfrastructure.MockInterface
 		controlPlane         *mockcontrolplane.MockInterface
 		controlPlaneExposure *mockcontrolplane.MockInterface
+		externalDNSRecord    *mockdnsrecord.MockInterface
+		internalDNSRecord    *mockdnsrecord.MockInterface
 		botanist             *Botanist
 
 		ctx               = context.TODO()
@@ -79,11 +83,13 @@ var _ = Describe("controlplane", func() {
 		scheme = runtime.NewScheme()
 		Expect(dnsv1alpha1.AddToScheme(scheme)).NotTo(HaveOccurred())
 		Expect(corev1.AddToScheme(scheme)).NotTo(HaveOccurred())
-		client = fake.NewFakeClientWithScheme(scheme)
+		client = fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		infrastructure = mockinfrastructure.NewMockInterface(ctrl)
 		controlPlane = mockcontrolplane.NewMockInterface(ctrl)
 		controlPlaneExposure = mockcontrolplane.NewMockInterface(ctrl)
+		externalDNSRecord = mockdnsrecord.NewMockInterface(ctrl)
+		internalDNSRecord = mockdnsrecord.NewMockInterface(ctrl)
 
 		botanist = &Botanist{
 			Operation: &operation.Operation{
@@ -104,13 +110,14 @@ var _ = Describe("controlplane", func() {
 							DNS:                  &shoot.DNS{},
 							ControlPlane:         controlPlane,
 							ControlPlaneExposure: controlPlaneExposure,
+							ExternalDNSRecord:    externalDNSRecord,
+							InternalDNSRecord:    internalDNSRecord,
 							Infrastructure:       infrastructure,
 						},
 					},
 				},
-				Garden:         &garden.Garden{},
-				Logger:         logrus.NewEntry(logger.NewNopLogger()),
-				ChartsRootPath: "../../../charts",
+				Garden: &garden.Garden{},
+				Logger: logrus.NewEntry(logger.NewNopLogger()),
 			},
 		}
 
@@ -177,13 +184,18 @@ var _ = Describe("controlplane", func() {
 		})
 
 		It("sets owners and entries which create DNSOwner and DNSEntry", func() {
-			botanist.Shoot.Info.Status.ClusterIdentity = pointer.StringPtr("shoot-cluster-identity")
+			botanist.Shoot.Info.Status.ClusterIdentity = pointer.String("shoot-cluster-identity")
 			botanist.Shoot.DisableDNS = false
-			botanist.Shoot.Info.Spec.DNS = &gardencorev1beta1.DNS{Domain: pointer.StringPtr("foo")}
+			botanist.Shoot.Info.Spec.DNS = &gardencorev1beta1.DNS{Domain: pointer.String("foo")}
 			botanist.Shoot.InternalClusterDomain = "bar"
-			botanist.Shoot.ExternalClusterDomain = pointer.StringPtr("baz")
+			botanist.Shoot.ExternalClusterDomain = pointer.String("baz")
 			botanist.Shoot.ExternalDomain = &garden.Domain{Provider: "valid-provider"}
 			botanist.Garden.InternalDomain = &garden.Domain{Provider: "valid-provider"}
+
+			externalDNSRecord.EXPECT().SetRecordType(extensionsv1alpha1.DNSRecordTypeA)
+			externalDNSRecord.EXPECT().SetValues([]string{"1.2.3.4"})
+			internalDNSRecord.EXPECT().SetRecordType(extensionsv1alpha1.DNSRecordTypeA)
+			internalDNSRecord.EXPECT().SetValues([]string{"1.2.3.4"})
 
 			botanist.setAPIServerAddress("1.2.3.4", client)
 
@@ -215,7 +227,7 @@ var _ = Describe("controlplane", func() {
 				},
 				Spec: dnsv1alpha1.DNSOwnerSpec{
 					OwnerId: "shoot-cluster-identity-internal",
-					Active:  pointer.BoolPtr(true),
+					Active:  pointer.Bool(true),
 				},
 			}))
 			Expect(internalEntry).To(DeepDerivativeEqual(&dnsv1alpha1.DNSEntry{
@@ -237,7 +249,7 @@ var _ = Describe("controlplane", func() {
 				},
 				Spec: dnsv1alpha1.DNSOwnerSpec{
 					OwnerId: "shoot-cluster-identity-external",
-					Active:  pointer.BoolPtr(true),
+					Active:  pointer.Bool(true),
 				},
 			}))
 			Expect(externalEntry).To(DeepDerivativeEqual(&dnsv1alpha1.DNSEntry{
@@ -290,8 +302,8 @@ var _ = Describe("controlplane", func() {
 			BeforeEach(func() {
 				Expect(gardenletfeatures.FeatureGate.Set("APIServerSNI=true")).ToNot(HaveOccurred())
 				botanist.Garden.InternalDomain = &garden.Domain{Provider: "some-provider"}
-				botanist.Shoot.Info.Spec.DNS = &gardencorev1beta1.DNS{Domain: pointer.StringPtr("foo")}
-				botanist.Shoot.ExternalClusterDomain = pointer.StringPtr("baz")
+				botanist.Shoot.Info.Spec.DNS = &gardencorev1beta1.DNS{Domain: pointer.String("foo")}
+				botanist.Shoot.ExternalClusterDomain = pointer.String("baz")
 				botanist.Shoot.ExternalDomain = &garden.Domain{Provider: "valid-provider"}
 			})
 

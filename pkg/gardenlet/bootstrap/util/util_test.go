@@ -41,7 +41,7 @@ import (
 	gardencore "github.com/gardener/gardener/pkg/apis/core"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
-	bootstraputil "github.com/gardener/gardener/pkg/gardenlet/bootstrap/util"
+	. "github.com/gardener/gardener/pkg/gardenlet/bootstrap/util"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
 	"github.com/gardener/gardener/pkg/utils"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
@@ -65,13 +65,13 @@ var _ = Describe("Util", func() {
 				Organization: []string{organization},
 				CommonName:   "test-cn",
 			}
-			digest, err := bootstraputil.DigestedName(signer.Public(), subject, []certificatesv1.KeyUsage{certificatesv1.UsageDigitalSignature})
+			digest, err := DigestedName(signer.Public(), subject, []certificatesv1.KeyUsage{certificatesv1.UsageDigitalSignature})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(strings.HasPrefix(digest, "seed-csr-")).To(BeTrue())
 		})
 
 		It("should return an error because the public key cannot be marshalled", func() {
-			_, err := bootstraputil.DigestedName([]byte("test"), nil, []certificatesv1.KeyUsage{certificatesv1.UsageDigitalSignature})
+			_, err := DigestedName([]byte("test"), nil, []certificatesv1.KeyUsage{certificatesv1.UsageDigitalSignature})
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -86,6 +86,8 @@ var _ = Describe("Util", func() {
 		BeforeEach(func() {
 			ctrl = gomock.NewController(GinkgoT())
 			c = mockclient.NewMockClient(ctrl)
+
+			c.EXPECT().Scheme().Return(kubernetes.GardenScheme).AnyTimes()
 		})
 
 		AfterEach(func() {
@@ -107,7 +109,7 @@ var _ = Describe("Util", func() {
 					Get(ctx, kutil.Key(secretReference.Namespace, secretReference.Name), gomock.AssignableToTypeOf(&corev1.Secret{})).
 					Return(apierrors.NewNotFound(schema.GroupResource{Resource: "Secret"}, secretReference.Name))
 
-				kubeconfig, err := bootstraputil.GetKubeconfigFromSecret(ctx, c, secretNamespace, secretName)
+				kubeconfig, err := GetKubeconfigFromSecret(ctx, c, secretNamespace, secretName)
 
 				Expect(kubeconfig).To(BeNil())
 				Expect(err).ToNot(HaveOccurred())
@@ -127,7 +129,7 @@ var _ = Describe("Util", func() {
 						return nil
 					})
 
-				kubeconfig, err := bootstraputil.GetKubeconfigFromSecret(ctx, c, secretNamespace, secretName)
+				kubeconfig, err := GetKubeconfigFromSecret(ctx, c, secretNamespace, secretName)
 
 				Expect(kubeconfig).To(Equal(kubeconfigContent))
 				Expect(err).ToNot(HaveOccurred())
@@ -150,7 +152,7 @@ var _ = Describe("Util", func() {
 					CAFile:   "filepath",
 				}}
 
-				expectedKubeconfig, err := bootstraputil.CreateGardenletKubeconfigWithClientCertificate(certClientConfig, nil, nil)
+				expectedKubeconfig, err := CreateGardenletKubeconfigWithClientCertificate(certClientConfig, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				expectedSecret := &corev1.Secret{
@@ -167,7 +169,7 @@ var _ = Describe("Util", func() {
 					KubeconfigSecret: &secretReference,
 				}
 
-				kubeconfig, err := bootstraputil.UpdateGardenKubeconfigSecret(ctx, certClientConfig, nil, nil, c, gardenClientConnection)
+				kubeconfig, err := UpdateGardenKubeconfigSecret(ctx, certClientConfig, nil, nil, c, gardenClientConnection)
 
 				Expect(err).ToNot(HaveOccurred())
 				Expect(kubeconfig).To(Equal(expectedKubeconfig))
@@ -199,21 +201,22 @@ var _ = Describe("Util", func() {
 				})
 				c.EXPECT().Get(ctx, kutil.Key(metav1.NamespaceSystem, bootstrapTokenSecretName), gomock.AssignableToTypeOf(&corev1.Secret{})).Return(nil).Times(2)
 
-				c.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, s *corev1.Secret) error {
-					Expect(s.Name).To(Equal(bootstrapTokenSecretName))
-					Expect(s.Namespace).To(Equal(metav1.NamespaceSystem))
-					Expect(s.Type).To(Equal(bootstraptokenapi.SecretTypeBootstrapToken))
-					Expect(s.Data).ToNot(BeNil())
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenDescriptionKey]).ToNot(BeNil())
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenIDKey]).To(Equal([]byte(tokenID)))
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenSecretKey]).ToNot(BeNil())
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenExpirationKey]).ToNot(BeNil())
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenUsageAuthentication]).To(Equal([]byte("true")))
-					Expect(s.Data[bootstraptokenapi.BootstrapTokenUsageSigningKey]).To(Equal([]byte("true")))
-					return nil
-				})
+				c.EXPECT().Patch(ctx, gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, s *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
+						Expect(s.Name).To(Equal(bootstrapTokenSecretName))
+						Expect(s.Namespace).To(Equal(metav1.NamespaceSystem))
+						Expect(s.Type).To(Equal(bootstraptokenapi.SecretTypeBootstrapToken))
+						Expect(s.Data).ToNot(BeNil())
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenDescriptionKey]).ToNot(BeNil())
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenIDKey]).To(Equal([]byte(tokenID)))
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenSecretKey]).ToNot(BeNil())
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenExpirationKey]).ToNot(BeNil())
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenUsageAuthentication]).To(Equal([]byte("true")))
+						Expect(s.Data[bootstraptokenapi.BootstrapTokenUsageSigningKey]).To(Equal([]byte("true")))
+						return nil
+					})
 
-				kubeconfig, err := bootstraputil.ComputeGardenletKubeconfigWithBootstrapToken(ctx, c, restConfig, tokenID, description, validity)
+				kubeconfig, err := ComputeGardenletKubeconfigWithBootstrapToken(ctx, c, restConfig, tokenID, description, validity)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(kubeconfig).ToNot(BeNil())
 
@@ -232,7 +235,7 @@ var _ = Describe("Util", func() {
 					return nil
 				})
 
-				kubeconfig, err := bootstraputil.ComputeGardenletKubeconfigWithBootstrapToken(ctx, c, restConfig, tokenID, description, validity)
+				kubeconfig, err := ComputeGardenletKubeconfigWithBootstrapToken(ctx, c, restConfig, tokenID, description, validity)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(kubeconfig).ToNot(BeNil())
 
@@ -248,29 +251,26 @@ var _ = Describe("Util", func() {
 					Host: "apiserver.dummy",
 				}
 				serviceAccountName       = "gardenlet"
+				serviceAccountNamespace  = "garden"
 				serviceAccountSecretName = "service-account-secret"
 			)
 
 			It("should fail because the service account token controller has not yet created a secret for the service account", func() {
-				c.EXPECT().Get(ctx, kutil.Key("garden", serviceAccountName), gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).Return(apierrors.NewNotFound(schema.GroupResource{}, serviceAccountSecretName))
-
-				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).DoAndReturn(func(_ context.Context, s *corev1.ServiceAccount) error {
+				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).DoAndReturn(func(_ context.Context, s *corev1.ServiceAccount, _ ...client.CreateOption) error {
 					s.Name = serviceAccountName
 					s.Namespace = "garden"
 					s.Secrets = []corev1.ObjectReference{}
 					return nil
 				})
 
-				_, err := bootstraputil.ComputeGardenletKubeconfigWithServiceAccountToken(ctx, c, restConfig, serviceAccountName)
+				_, err := ComputeGardenletKubeconfigWithServiceAccountToken(ctx, c, restConfig, serviceAccountName, serviceAccountNamespace)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("service account token controller has not yet created a secret for the service account"))
 			})
 
 			It("should succeed", func() {
-				c.EXPECT().Get(ctx, kutil.Key("garden", serviceAccountName), gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).Return(apierrors.NewNotFound(schema.GroupResource{}, serviceAccountSecretName))
-
 				// create service account
-				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).DoAndReturn(func(_ context.Context, s *corev1.ServiceAccount) error {
+				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.ServiceAccount{})).DoAndReturn(func(_ context.Context, s *corev1.ServiceAccount, _ ...client.CreateOption) error {
 					Expect(s.Name).To(Equal(serviceAccountName))
 					Expect(s.Namespace).To(Equal("garden"))
 					s.Secrets = []corev1.ObjectReference{
@@ -292,12 +292,10 @@ var _ = Describe("Util", func() {
 				// create cluster role binding
 				clusterRoleBinding := &rbacv1.ClusterRoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: fmt.Sprintf("gardener.cloud:system:seed-bootstrapper:%s", serviceAccountName),
+						Name: fmt.Sprintf("gardener.cloud:system:seed-bootstrapper:%s:%s", serviceAccountNamespace, serviceAccountName),
 					},
 				}
-				c.EXPECT().Get(ctx, kutil.Key(clusterRoleBinding.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})).Return(apierrors.NewNotFound(schema.GroupResource{}, clusterRoleBinding.Name))
-
-				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})).DoAndReturn(func(_ context.Context, s *rbacv1.ClusterRoleBinding) error {
+				c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})).DoAndReturn(func(_ context.Context, s *rbacv1.ClusterRoleBinding, _ ...client.CreateOption) error {
 					expectedClusterRoleBinding := clusterRoleBinding
 					expectedClusterRoleBinding.RoleRef = rbacv1.RoleRef{
 						APIGroup: "rbac.authorization.k8s.io",
@@ -308,7 +306,7 @@ var _ = Describe("Util", func() {
 						{
 							Kind:      "ServiceAccount",
 							Name:      serviceAccountName,
-							Namespace: "garden",
+							Namespace: serviceAccountNamespace,
 						},
 					}
 
@@ -316,7 +314,7 @@ var _ = Describe("Util", func() {
 					return nil
 				})
 
-				kubeconfig, err := bootstraputil.ComputeGardenletKubeconfigWithServiceAccountToken(ctx, c, restConfig, serviceAccountName)
+				kubeconfig, err := ComputeGardenletKubeconfigWithServiceAccountToken(ctx, c, restConfig, serviceAccountName, serviceAccountNamespace)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(kubeconfig).ToNot(BeNil())
 
@@ -327,18 +325,10 @@ var _ = Describe("Util", func() {
 		})
 	})
 
-	Describe("BuildBootstrapperName", func() {
-		It("should return the correct name", func() {
-			name := "foo"
-			result := bootstraputil.BuildBootstrapperName(name)
-			Expect(result).To(Equal(fmt.Sprintf("%s:%s", bootstraputil.GardenerSeedBootstrapper, name)))
-		})
-	})
-
 	Describe("GetSeedName", func() {
 		It("should return the configured name", func() {
 			name := "test-name"
-			result := bootstraputil.GetSeedName(&config.SeedConfig{
+			result := GetSeedName(&config.SeedConfig{
 				SeedTemplate: gardencore.SeedTemplate{
 					ObjectMeta: metav1.ObjectMeta{Name: name},
 				},
@@ -347,24 +337,102 @@ var _ = Describe("Util", func() {
 		})
 
 		It("should return the default name", func() {
-			result := bootstraputil.GetSeedName(nil)
+			result := GetSeedName(nil)
 			Expect(result).To(Equal("<ambiguous>"))
 		})
 	})
 
 	Describe("GetTargetClusterName", func() {
 		It("should return DedicatedSeedKubeconfig", func() {
-			result := bootstraputil.GetTargetClusterName(&config.SeedClientConnection{
+			result := GetTargetClusterName(&config.SeedClientConnection{
 				ClientConnectionConfiguration: baseconfig.ClientConnectionConfiguration{
 					Kubeconfig: "/var/xxx/",
 				},
 			})
-			Expect(result).To(Equal(bootstraputil.DedicatedSeedKubeconfig))
+			Expect(result).To(Equal(DedicatedSeedKubeconfig))
 		})
 
 		It("should return InCluster", func() {
-			result := bootstraputil.GetTargetClusterName(nil)
-			Expect(result).To(Equal(bootstraputil.InCluster))
+			result := GetTargetClusterName(nil)
+			Expect(result).To(Equal(InCluster))
+		})
+	})
+
+	Context("cluster role binding name/service account name/token id/description", func() {
+		var (
+			kind      = "foo"
+			namespace = "bar"
+			name      = "baz"
+
+			clusterRoleNameWithoutNamespace = "gardener.cloud:system:seed-bootstrapper:" + name
+			clusterRoleNameWithNamespace    = "gardener.cloud:system:seed-bootstrapper:" + namespace + ":" + name
+
+			descriptionWithoutNamespace = fmt.Sprintf("A bootstrap token for the Gardenlet for %s %s.", kind, name)
+			descriptionWithNamespace    = fmt.Sprintf("A bootstrap token for the Gardenlet for %s %s/%s.", kind, namespace, name)
+		)
+
+		Describe("#ClusterRoleBindingName", func() {
+			It("should return the correct name (w/o namespace)", func() {
+				Expect(ClusterRoleBindingName("", name)).To(Equal(fmt.Sprintf("gardener.cloud:system:seed-bootstrapper:%s", name)))
+			})
+
+			It("should return the correct name (w/ namespace)", func() {
+				Expect(ClusterRoleBindingName(namespace, name)).To(Equal(fmt.Sprintf("gardener.cloud:system:seed-bootstrapper:%s:%s", namespace, name)))
+			})
+		})
+
+		Describe("#MetadataFromClusterRoleBindingName", func() {
+			It("should return the expected namespace/name from a cluster role binding name (w/o namespace)", func() {
+				resultNamespace, resultName := MetadataFromClusterRoleBindingName(clusterRoleNameWithoutNamespace)
+				Expect(resultNamespace).To(BeEmpty())
+				Expect(resultName).To(Equal(name))
+			})
+
+			It("should return the expected namespace/name from a cluster role binding name (w/ namespace)", func() {
+				resultNamespace, resultName := MetadataFromClusterRoleBindingName(clusterRoleNameWithNamespace)
+				Expect(resultNamespace).To(Equal(namespace))
+				Expect(resultName).To(Equal(name))
+			})
+		})
+
+		Describe("#ServiceAccountName", func() {
+			It("should compute the expected name", func() {
+				Expect(ServiceAccountName(name)).To(Equal("gardenlet-bootstrap-" + name))
+			})
+		})
+
+		Describe("#TokenID", func() {
+			It("should compute the expected id (w/o namespace", func() {
+				Expect(TokenID(metav1.ObjectMeta{Name: name})).To(Equal("baa5a0"))
+			})
+
+			It("should compute the expected id (w/ namespace", func() {
+				Expect(TokenID(metav1.ObjectMeta{Name: name, Namespace: namespace})).To(Equal("594384"))
+			})
+		})
+
+		Describe("#Description", func() {
+			It("should compute the expected description (w/o namespace)", func() {
+				Expect(Description(kind, "", name)).To(Equal(descriptionWithoutNamespace))
+			})
+
+			It("should compute the expected description (w/ namespace)", func() {
+				Expect(Description(kind, namespace, name)).To(Equal(descriptionWithNamespace))
+			})
+		})
+
+		Describe("#MetadataFromDescription", func() {
+			It("should return the expected namespace/name from a description (w/o namespace)", func() {
+				resultNamespace, resultName := MetadataFromDescription(descriptionWithoutNamespace, kind)
+				Expect(resultNamespace).To(BeEmpty())
+				Expect(resultName).To(Equal(name))
+			})
+
+			It("should return the expected namespace/name from a description (w/ namespace)", func() {
+				resultNamespace, resultName := MetadataFromDescription(descriptionWithNamespace, kind)
+				Expect(resultNamespace).To(Equal(namespace))
+				Expect(resultName).To(Equal(name))
+			})
 		})
 	})
 })

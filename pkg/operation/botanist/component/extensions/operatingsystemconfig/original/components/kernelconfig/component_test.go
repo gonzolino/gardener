@@ -39,14 +39,14 @@ var _ = Describe("Component", func() {
 			Expect(units).To(ConsistOf(
 				extensionsv1alpha1.Unit{
 					Name:    "systemd-sysctl.service",
-					Command: pointer.StringPtr("restart"),
-					Enable:  pointer.BoolPtr(true),
+					Command: pointer.String("restart"),
+					Enable:  pointer.Bool(true),
 				},
 			))
 			Expect(files).To(ConsistOf(
 				extensionsv1alpha1.File{
 					Path:        "/etc/sysctl.d/99-k8s-general.conf",
-					Permissions: pointer.Int32Ptr(0644),
+					Permissions: pointer.Int32(0644),
 					Content: extensionsv1alpha1.FileContent{
 						Inline: &extensionsv1alpha1.FileContentInline{
 							Data: data,
@@ -73,6 +73,8 @@ net.core.netdev_max_backlog = 5000
 net.core.rmem_max = 16777216
 # Default Socket Send Buffer
 net.core.wmem_max = 16777216
+# enable martian packets
+net.ipv4.conf.default.log_martians = 1
 # Increase the maximum total buffer-space allocatable
 net.ipv4.tcp_wmem = 4096 12582912 16777216
 net.ipv4.tcp_rmem = 4096 12582912 16777216

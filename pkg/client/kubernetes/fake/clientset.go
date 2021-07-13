@@ -20,6 +20,7 @@ import (
 	"github.com/gardener/gardener/pkg/chartrenderer"
 	gardencoreclientset "github.com/gardener/gardener/pkg/client/core/clientset/versioned"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	gardenoperationsclientset "github.com/gardener/gardener/pkg/client/operations/clientset/versioned"
 	gardenseedmanagementclientset "github.com/gardener/gardener/pkg/client/seedmanagement/clientset/versioned"
 
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -43,11 +44,11 @@ type ClientSet struct {
 	restConfig           *rest.Config
 	client               client.Client
 	apiReader            client.Reader
-	directClient         client.Client
 	cache                cache.Cache
 	kubernetes           kubernetesclientset.Interface
 	gardenCore           gardencoreclientset.Interface
 	gardenSeedManagement gardenseedmanagementclientset.Interface
+	gardenOperations     gardenoperationsclientset.Interface
 	apiextension         apiextensionsclientset.Interface
 	apiregistration      apiregistrationclientset.Interface
 	restClient           rest.Interface
@@ -89,13 +90,6 @@ func (c *ClientSet) APIReader() client.Reader {
 	return c.apiReader
 }
 
-// DirectClient returns a controller-runtime client, which can be used to talk to the API server directly
-// (without using a cache).
-// Deprecated: used APIReader instead, if the controller can't tolerate stale reads.
-func (c *ClientSet) DirectClient() client.Client {
-	return c.directClient
-}
-
 // Cache returns the clientset's controller-runtime cache. It can be used to get Informers for arbitrary objects.
 func (c *ClientSet) Cache() cache.Cache {
 	return c.cache
@@ -114,6 +108,11 @@ func (c *ClientSet) GardenCore() gardencoreclientset.Interface {
 // GardenSeedManagement will return the gardenSeedManagement attribute of the Client object.
 func (c *ClientSet) GardenSeedManagement() gardenseedmanagementclientset.Interface {
 	return c.gardenSeedManagement
+}
+
+// GardenOperations will return the gardenOperations attribute of the Client object.
+func (c *ClientSet) GardenOperations() gardenoperationsclientset.Interface {
+	return c.gardenOperations
 }
 
 // APIExtension will return the apiextension ClientSet attribute of the Client object.

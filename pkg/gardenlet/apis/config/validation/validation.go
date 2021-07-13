@@ -16,13 +16,16 @@ package validation
 
 import (
 	"fmt"
+	"net"
 
 	gardencore "github.com/gardener/gardener/pkg/apis/core"
 	corevalidation "github.com/gardener/gardener/pkg/apis/core/validation"
+	"github.com/gardener/gardener/pkg/features"
 	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
 
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
@@ -34,6 +37,9 @@ func ValidateGardenletConfiguration(cfg *config.GardenletConfiguration, fldPath 
 		if cfg.Controllers.BackupEntry != nil {
 			allErrs = append(allErrs, ValidateBackupEntryControllerConfiguration(cfg.Controllers.BackupEntry, fldPath.Child("controllers", "backupEntry"))...)
 		}
+		if cfg.Controllers.Bastion != nil {
+			allErrs = append(allErrs, ValidateBastionControllerConfiguration(cfg.Controllers.Bastion, fldPath.Child("controllers", "bastion"))...)
+		}
 		if cfg.Controllers.Shoot != nil {
 			allErrs = append(allErrs, ValidateShootControllerConfiguration(cfg.Controllers.Shoot, fldPath.Child("controllers", "shoot"))...)
 		}
@@ -42,8 +48,8 @@ func ValidateGardenletConfiguration(cfg *config.GardenletConfiguration, fldPath 
 		}
 	}
 
-	if !inTemplate && (cfg.SeedConfig == nil && cfg.SeedSelector == nil) || (cfg.SeedConfig != nil && cfg.SeedSelector != nil) {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("seedConfig"), cfg, "either seed config or seed selector is required"))
+	if !inTemplate && cfg.SeedConfig == nil {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("seedConfig"), cfg, "seed config must be set"))
 	}
 
 	if cfg.SeedConfig != nil {
@@ -70,6 +76,32 @@ func ValidateGardenletConfiguration(cfg *config.GardenletConfiguration, fldPath 
 		for resourceName := range cfg.Resources.Reserved {
 			if _, ok := cfg.Resources.Capacity[resourceName]; !ok {
 				allErrs = append(allErrs, field.Invalid(resourcesPath.Child("reserved", string(resourceName)), cfg.Resources.Reserved[resourceName], "reserved without capacity"))
+			}
+		}
+	}
+
+	sniPath := fldPath.Child("sni", "ingress")
+	if cfg.SNI != nil && cfg.SNI.Ingress != nil && cfg.SNI.Ingress.ServiceExternalIP != nil {
+		if ip := net.ParseIP(*cfg.SNI.Ingress.ServiceExternalIP); ip == nil {
+			allErrs = append(allErrs, field.Invalid(sniPath.Child("serviceExternalIP"), cfg.SNI.Ingress.ServiceExternalIP, "external service ip is invalid"))
+		}
+	}
+
+	exposureClassHandlersPath := fldPath.Child("exposureClassHandlers")
+	for i, handler := range cfg.ExposureClassHandlers {
+		handlerPath := exposureClassHandlersPath.Index(i)
+
+		for _, errorMessage := range validation.IsDNS1123Label(handler.Name) {
+			allErrs = append(allErrs, field.Invalid(handlerPath.Child("name"), handler.Name, errorMessage))
+		}
+
+		if handler.SNI != nil && handler.SNI.Ingress != nil && handler.SNI.Ingress.ServiceExternalIP != nil {
+			if apiServerSNIEnabled, ok := cfg.FeatureGates[string(features.APIServerSNI)]; ok && !apiServerSNIEnabled {
+				allErrs = append(allErrs, field.Forbidden(handlerPath.Child("sni", "ingress", "serviceExternalIP"), "cannot use an external service ip when APIServerSNI feature gate is disabled"))
+			}
+
+			if ip := net.ParseIP(*handler.SNI.Ingress.ServiceExternalIP); ip == nil {
+				allErrs = append(allErrs, field.Invalid(handlerPath.Child("sni", "ingress", "serviceExternalIP"), handler.SNI.Ingress.ServiceExternalIP, "external service ip is invalid"))
 			}
 		}
 	}
@@ -162,6 +194,17 @@ func ValidateBackupEntryControllerConfiguration(cfg *config.BackupEntryControlle
 		if !availableShootPurposes.Has(string(purpose)) {
 			allErrs = append(allErrs, field.NotSupported(fldPath.Child("deletionGracePeriodShootPurposes").Index(i), purpose, availableShootPurposes.List()))
 		}
+	}
+
+	return allErrs
+}
+
+// ValidateBastionControllerConfiguration validates the bastion configuration.
+func ValidateBastionControllerConfiguration(cfg *config.BastionControllerConfiguration, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	if cfg.ConcurrentSyncs != nil {
+		allErrs = append(allErrs, apivalidation.ValidateNonnegativeField(int64(*cfg.ConcurrentSyncs), fldPath.Child("concurrentSyncs"))...)
 	}
 
 	return allErrs

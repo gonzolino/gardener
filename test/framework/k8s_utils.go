@@ -18,12 +18,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"time"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
-	gardenerutils "github.com/gardener/gardener/pkg/utils"
+	"github.com/gardener/gardener/pkg/utils"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/retry"
@@ -36,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
-	k8sretry "k8s.io/client-go/util/retry"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -340,7 +339,7 @@ func DownloadKubeconfig(ctx context.Context, client kubernetes.Interface, namesp
 		return err
 	}
 	if downloadPath != "" {
-		err = ioutil.WriteFile(downloadPath, []byte(kubeconfig), 0755)
+		err = os.WriteFile(downloadPath, []byte(kubeconfig), 0755)
 		if err != nil {
 			return err
 		}
@@ -348,19 +347,16 @@ func DownloadKubeconfig(ctx context.Context, client kubernetes.Interface, namesp
 	return nil
 }
 
-// UpdateSecret updates the Secret with an backoff
-func UpdateSecret(ctx context.Context, k8sClient kubernetes.Interface, secret *corev1.Secret) error {
-	if err := k8sretry.RetryOnConflict(k8sretry.DefaultBackoff, func() (err error) {
-		existingSecret := &corev1.Secret{}
-		if err = k8sClient.Client().Get(ctx, client.ObjectKey{Namespace: secret.Namespace, Name: secret.Name}, existingSecret); err != nil {
-			return err
-		}
-		existingSecret.Data = secret.Data
-		return k8sClient.Client().Update(ctx, existingSecret)
-	}); err != nil {
+// PatchSecret patches the Secret.
+func PatchSecret(ctx context.Context, c client.Client, secret *corev1.Secret) error {
+	existingSecret := &corev1.Secret{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: secret.Namespace, Name: secret.Name}, existingSecret); err != nil {
 		return err
 	}
-	return nil
+	patch := client.MergeFrom(existingSecret.DeepCopy())
+
+	existingSecret.Data = secret.Data
+	return c.Patch(ctx, existingSecret, patch)
 }
 
 // GetObjectFromSecret returns object from secret
@@ -441,7 +437,7 @@ func (f *CommonFramework) WaitUntilPodIsRunningWithLabels(ctx context.Context, l
 func DeployRootPod(ctx context.Context, c client.Client, namespace string, nodename *string) (*corev1.Pod, error) {
 	podPriority := int32(0)
 	allowedCharacters := "0123456789abcdefghijklmnopqrstuvwxyz"
-	id, err := gardenerutils.GenerateRandomStringFromCharset(3, allowedCharacters)
+	id, err := utils.GenerateRandomStringFromCharset(3, allowedCharacters)
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +454,7 @@ func DeployRootPod(ctx context.Context, c client.Client, namespace string, noden
 			Containers: []corev1.Container{
 				{
 					Name:  "root-container",
-					Image: "busybox",
+					Image: "eu.gcr.io/gardener-project/3rd/busybox:1.29.2",
 					Command: []string{
 						"sleep",
 						"10000000",
@@ -468,7 +464,7 @@ func DeployRootPod(ctx context.Context, c client.Client, namespace string, noden
 					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 					ImagePullPolicy:          corev1.PullIfNotPresent,
 					SecurityContext: &corev1.SecurityContext{
-						Privileged: pointer.BoolPtr(true),
+						Privileged: pointer.Bool(true),
 					},
 					Stdin: true,
 					VolumeMounts: []corev1.VolumeMount{

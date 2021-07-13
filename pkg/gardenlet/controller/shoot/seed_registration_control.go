@@ -21,10 +21,11 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
-	"github.com/gardener/gardener/pkg/apis/seedmanagement/helper"
+	"github.com/gardener/gardener/pkg/apis/seedmanagement/encoding"
 	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap/keys"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	configv1alpha1 "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
 	"github.com/gardener/gardener/pkg/logger"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
@@ -38,7 +39,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -150,7 +150,7 @@ func (c *defaultSeedRegistrationControl) Reconcile(ctx context.Context, shoot *g
 
 	if shoot.DeletionTimestamp == nil && shootedSeed != nil {
 		shootLogger.Infof("[SHOOTED SEED REGISTRATION] Creating or updating ManagedSeed object for shoot %s", kutil.ObjectName(shoot))
-		if err := createOrUpdateManagedSeed(ctx, gardenClient.Client(), shoot, shootedSeed); err != nil {
+		if err := reconcileManagedSeed(ctx, gardenClient.Client(), shoot, shootedSeed); err != nil {
 			message := fmt.Sprintf("Could not create or update ManagedSeed object for shoot %s: %+v", kutil.ObjectName(shoot), err)
 			shootLogger.Errorf(message)
 			c.recorder.Event(shoot, corev1.EventTypeWarning, "ManagedSeedCreationOrUpdate", message)
@@ -183,7 +183,7 @@ func isManagedSeedOwnedBy(ctx context.Context, c client.Client, shoot *gardencor
 	return true, metav1.IsControlledBy(managedSeed, shoot), nil
 }
 
-func createOrUpdateManagedSeed(ctx context.Context, c client.Client, shoot *gardencorev1beta1.Shoot, shootedSeed *gardencorev1beta1helper.ShootedSeed) error {
+func reconcileManagedSeed(ctx context.Context, c client.Client, shoot *gardencorev1beta1.Shoot, shootedSeed *gardencorev1beta1helper.ShootedSeed) error {
 	// Prepare managed seed spec
 	managedSeedSpec, err := getManagedSeedSpec(shoot, shootedSeed)
 	if err != nil {
@@ -197,7 +197,7 @@ func createOrUpdateManagedSeed(ctx context.Context, c client.Client, shoot *gard
 			Namespace: shoot.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, managedSeed, func() error {
+	_, err = controllerutils.GetAndCreateOrStrategicMergePatch(ctx, c, managedSeed, func() error {
 		managedSeed.OwnerReferences = []metav1.OwnerReference{
 			*metav1.NewControllerRef(shoot, gardencorev1beta1.SchemeGroupVersion.WithKind("Shoot")),
 		}
@@ -268,7 +268,7 @@ func getManagedSeedSpec(shoot *gardencorev1beta1.Shoot, shootedSeed *gardencorev
 		}
 
 		// Encode gardenlet config to raw extension
-		re, err := helper.EncodeGardenletConfiguration(config)
+		re, err := encoding.EncodeGardenletConfiguration(config)
 		if err != nil {
 			return nil, err
 		}
@@ -283,7 +283,7 @@ func getManagedSeedSpec(shoot *gardencorev1beta1.Shoot, shootedSeed *gardencorev
 		gardenlet = &seedmanagementv1alpha1.Gardenlet{
 			Config:          *re,
 			Bootstrap:       &bootstrap,
-			MergeWithParent: pointer.BoolPtr(true),
+			MergeWithParent: pointer.Bool(true),
 		}
 	}
 

@@ -17,7 +17,7 @@ package applications
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -100,7 +100,7 @@ func (t *GuestBookTest) WaitUntilGuestbookURLsRespondOK(ctx context.Context, gue
 				return retry.MinorError(fmt.Errorf("guestbook app url %q returned status %s", guestbookAppURL, response.Status))
 			}
 
-			responseBytes, err := ioutil.ReadAll(response.Body)
+			responseBytes, err := io.ReadAll(response.Body)
 			if err != nil {
 				return retry.SevereError(err)
 			}
@@ -130,6 +130,11 @@ func (t *GuestBookTest) DeployGuestBookApp(ctx context.Context) {
 	ginkgo.By("Applying redis chart")
 	// redis-slaves are not required for test success
 	chartOverrides := map[string]interface{}{
+		"image": map[string]interface{}{
+			"registry":   "eu.gcr.io",
+			"repository": "gardener-project/3rd/bitnami/redis",
+			"tag":        "5.0.7-debian-9-r12",
+		},
 		"cluster": map[string]interface{}{
 			"enabled": false,
 		},
@@ -196,7 +201,7 @@ func (t *GuestBookTest) Test(ctx context.Context) {
 	framework.ExpectNoError(err)
 	gomega.Expect(pullResponse.StatusCode).To(gomega.Equal(http.StatusOK))
 
-	responseBytes, err := ioutil.ReadAll(pullResponse.Body)
+	responseBytes, err := io.ReadAll(pullResponse.Body)
 	framework.ExpectNoError(err)
 
 	// test if foobar-<shoot-name> was pulled successfully

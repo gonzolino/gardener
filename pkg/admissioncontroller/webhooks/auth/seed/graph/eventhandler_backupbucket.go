@@ -15,6 +15,7 @@
 package graph
 
 import (
+	"context"
 	"time"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -24,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 )
 
-func (g *graph) setupBackupBucketWatch(informer cache.Informer) {
+func (g *graph) setupBackupBucketWatch(_ context.Context, informer cache.Informer) {
 	informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			backupBucket, ok := obj.(*gardencorev1beta1.BackupBucket)
@@ -46,7 +47,8 @@ func (g *graph) setupBackupBucketWatch(informer cache.Informer) {
 			}
 
 			if !apiequality.Semantic.DeepEqual(oldBackupBucket.Spec.SeedName, newBackupBucket.Spec.SeedName) ||
-				!apiequality.Semantic.DeepEqual(oldBackupBucket.Spec.SecretRef, newBackupBucket.Spec.SecretRef) {
+				!apiequality.Semantic.DeepEqual(oldBackupBucket.Spec.SecretRef, newBackupBucket.Spec.SecretRef) ||
+				!apiequality.Semantic.DeepEqual(oldBackupBucket.Status.GeneratedSecretRef, newBackupBucket.Status.GeneratedSecretRef) {
 				g.handleBackupBucketCreateOrUpdate(newBackupBucket)
 			}
 		},
@@ -85,6 +87,11 @@ func (g *graph) handleBackupBucketCreateOrUpdate(backupBucket *gardencorev1beta1
 	if backupBucket.Spec.SeedName != nil {
 		seedVertex := g.getOrCreateVertex(VertexTypeSeed, "", *backupBucket.Spec.SeedName)
 		g.addEdge(backupBucketVertex, seedVertex)
+	}
+
+	if backupBucket.Status.GeneratedSecretRef != nil {
+		generatedSecretVertex := g.getOrCreateVertex(VertexTypeSecret, backupBucket.Status.GeneratedSecretRef.Namespace, backupBucket.Status.GeneratedSecretRef.Name)
+		g.addEdge(generatedSecretVertex, backupBucketVertex)
 	}
 }
 

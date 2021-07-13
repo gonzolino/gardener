@@ -186,6 +186,12 @@ var _ = Describe("ExtensionValidator", func() {
 				Backup: &core.SeedBackup{
 					Provider: "bar",
 				},
+				Ingress: &core.Ingress{},
+				DNS: core.SeedDNS{
+					Provider: &core.SeedDNSProvider{
+						Type: "baz",
+					},
+				},
 			},
 		}
 
@@ -196,6 +202,7 @@ var _ = Describe("ExtensionValidator", func() {
 				{extensionsv1alpha1.ControlPlaneResource, seed.Spec.Provider.Type},
 				{extensionsv1alpha1.BackupBucketResource, seed.Spec.Backup.Provider},
 				{extensionsv1alpha1.BackupEntryResource, seed.Spec.Backup.Provider},
+				{dnsv1alpha1.DNSProviderKind, seed.Spec.DNS.Provider.Type},
 			}
 			registerAllExtensions = func() {
 				for _, registration := range kindToTypes {
@@ -264,8 +271,8 @@ var _ = Describe("ExtensionValidator", func() {
 			Spec: core.ShootSpec{
 				DNS: &core.DNS{
 					Providers: []core.DNSProvider{
-						{Type: pointer.StringPtr("foo-1")},
-						{Type: pointer.StringPtr("foo0")},
+						{Type: pointer.String("foo-1")},
+						{Type: pointer.String("foo0")},
 					},
 				},
 				Extensions: []core.Extension{

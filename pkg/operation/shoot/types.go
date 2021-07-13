@@ -18,18 +18,19 @@ import (
 	"context"
 	"net"
 
+	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/clusterautoscaler"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/clusteridentity"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/etcd"
-	extensionsbackupentry "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/backupentry"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/containerruntime"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/controlplane"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/dnsrecord"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/extension"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/infrastructure"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/operatingsystemconfig"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/worker"
-	"github.com/gardener/gardener/pkg/operation/botanist/component/konnectivity"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/kubecontrollermanager"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/kubescheduler"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/metricsserver"
@@ -44,13 +45,14 @@ import (
 
 // Builder is an object that builds Shoot objects.
 type Builder struct {
-	shootObjectFunc  func(context.Context) (*gardencorev1beta1.Shoot, error)
-	cloudProfileFunc func(context.Context, string) (*gardencorev1beta1.CloudProfile, error)
-	shootSecretFunc  func(context.Context, string, string) (*corev1.Secret, error)
-	projectName      string
-	internalDomain   *garden.Domain
-	defaultDomains   []*garden.Domain
-	disableDNS       bool
+	shootObjectFunc   func(context.Context) (*gardencorev1beta1.Shoot, error)
+	cloudProfileFunc  func(context.Context, string) (*gardencorev1beta1.CloudProfile, error)
+	exposureClassFunc func(context.Context, string) (*gardencorev1alpha1.ExposureClass, error)
+	shootSecretFunc   func(context.Context, string, string) (*corev1.Secret, error)
+	projectName       string
+	internalDomain    *garden.Domain
+	defaultDomains    []*garden.Domain
+	disableDNS        bool
 }
 
 // Shoot is an object containing information about a Shoot cluster.
@@ -74,10 +76,10 @@ type Shoot struct {
 	WantsAlertmanager          bool
 	IgnoreAlerts               bool
 	HibernationEnabled         bool
-	KonnectivityTunnelEnabled  bool
 	ReversedVPNEnabled         bool
 	NodeLocalDNSEnabled        bool
 	Networks                   *Networks
+	ExposureClass              *gardencorev1alpha1.ExposureClass
 
 	Components     *Components
 	ETCDEncryption *etcdencryption.EncryptionConfig
@@ -86,35 +88,36 @@ type Shoot struct {
 // Components contains different components deployed in the Shoot cluster.
 type Components struct {
 	BackupEntry      component.DeployMigrateWaiter
-	ClusterIdentity  component.Deployer
 	ControlPlane     *ControlPlane
 	Extensions       *Extensions
 	NetworkPolicies  component.Deployer
 	SystemComponents *SystemComponents
+	Logging          *Logging
 }
 
 // ControlPlane contains references to K8S control plane components.
 type ControlPlane struct {
-	EtcdMain              etcd.Etcd
-	EtcdEvents            etcd.Etcd
+	EtcdMain              etcd.Interface
+	EtcdEvents            etcd.Interface
 	KubeAPIServerService  component.DeployWaiter
 	KubeAPIServerSNI      component.DeployWaiter
 	KubeAPIServerSNIPhase component.Phase
-	KubeScheduler         kubescheduler.KubeScheduler
-	KubeControllerManager kubecontrollermanager.KubeControllerManager
-	ClusterAutoscaler     clusterautoscaler.ClusterAutoscaler
-	ResourceManager       resourcemanager.ResourceManager
-	KonnectivityServer    konnectivity.KonnectivityServer
-	VPNSeedServer         vpnseedserver.VPNSeedServer
+	KubeScheduler         kubescheduler.Interface
+	KubeControllerManager kubecontrollermanager.Interface
+	ClusterAutoscaler     clusterautoscaler.Interface
+	ResourceManager       resourcemanager.Interface
+	VPNSeedServer         vpnseedserver.Interface
 }
 
 // Extensions contains references to extension resources.
 type Extensions struct {
-	BackupEntry           extensionsbackupentry.Interface
 	ContainerRuntime      containerruntime.Interface
 	ControlPlane          controlplane.Interface
 	ControlPlaneExposure  controlplane.Interface
 	DNS                   *DNS
+	ExternalDNSRecord     dnsrecord.Interface
+	InternalDNSRecord     dnsrecord.Interface
+	IngressDNSRecord      dnsrecord.Interface
 	Extension             extension.Interface
 	Infrastructure        infrastructure.Interface
 	Network               component.DeployMigrateWaiter
@@ -124,8 +127,9 @@ type Extensions struct {
 
 // SystemComponents contains references to system components.
 type SystemComponents struct {
-	Namespaces    component.DeployWaiter
-	MetricsServer metricsserver.MetricsServer
+	ClusterIdentity clusteridentity.Interface
+	Namespaces      component.DeployWaiter
+	MetricsServer   metricsserver.Interface
 }
 
 // DNS contains references to internal and external DNSProvider and DNSEntry deployers.
@@ -139,6 +143,11 @@ type DNS struct {
 	AdditionalProviders map[string]component.DeployWaiter
 	NginxOwner          component.DeployWaiter
 	NginxEntry          component.DeployWaiter
+}
+
+// Logging contains references to logging deployers
+type Logging struct {
+	ShootRBACProxy component.Deployer
 }
 
 // Networks contains pre-calculated subnets and IP address for various components.

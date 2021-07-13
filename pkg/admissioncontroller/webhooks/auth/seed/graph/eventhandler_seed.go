@@ -15,18 +15,23 @@
 package graph
 
 import (
+	"context"
 	"time"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
-	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
+	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (g *graph) setupSeedWatch(informer cache.Informer) {
+func (g *graph) setupSeedWatch(ctx context.Context, informer cache.Informer) {
 	informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			seed, ok := obj.(*gardencorev1beta1.Seed)
@@ -34,6 +39,17 @@ func (g *graph) setupSeedWatch(informer cache.Informer) {
 				return
 			}
 			g.handleSeedCreateOrUpdate(seed)
+
+			// Check if seed belongs to a ManagedSeed and enqueue it if necessary
+			managedSeed := &seedmanagementv1alpha1.ManagedSeed{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      seed.Name,
+					Namespace: v1beta1constants.GardenNamespace,
+				},
+			}
+			if err := g.client.Get(ctx, client.ObjectKeyFromObject(managedSeed), managedSeed); err == nil {
+				g.handleManagedSeedCreateOrUpdate(ctx, managedSeed)
+			}
 		},
 
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -48,7 +64,8 @@ func (g *graph) setupSeedWatch(informer cache.Informer) {
 			}
 
 			if !apiequality.Semantic.DeepEqual(oldSeed.Spec.SecretRef, newSeed.Spec.SecretRef) ||
-				!gardencorev1beta1helper.SeedBackupSecretRefEqual(oldSeed.Spec.Backup, newSeed.Spec.Backup) {
+				!gardencorev1beta1helper.SeedBackupSecretRefEqual(oldSeed.Spec.Backup, newSeed.Spec.Backup) ||
+				!seedDNSProviderSecretRefEqual(oldSeed.Spec.DNS.Provider, newSeed.Spec.DNS.Provider) {
 				g.handleSeedCreateOrUpdate(newSeed)
 			}
 		},
@@ -76,10 +93,14 @@ func (g *graph) handleSeedCreateOrUpdate(seed *gardencorev1beta1.Seed) {
 
 	g.deleteAllIncomingEdges(VertexTypeSecret, VertexTypeSeed, "", seed.Name)
 	g.deleteAllIncomingEdges(VertexTypeNamespace, VertexTypeSeed, "", seed.Name)
+	g.deleteAllIncomingEdges(VertexTypeLease, VertexTypeSeed, "", seed.Name)
 
 	seedVertex := g.getOrCreateVertex(VertexTypeSeed, "", seed.Name)
-	namespaceVertex := g.getOrCreateVertex(VertexTypeNamespace, "", gardenerutils.ComputeGardenNamespace(seed.Name))
+	namespaceVertex := g.getOrCreateVertex(VertexTypeNamespace, "", gutil.ComputeGardenNamespace(seed.Name))
 	g.addEdge(namespaceVertex, seedVertex)
+
+	leaseVertex := g.getOrCreateVertex(VertexTypeLease, gardencorev1beta1.GardenerSeedLeaseNamespace, seed.Name)
+	g.addEdge(leaseVertex, seedVertex)
 
 	if seed.Spec.SecretRef != nil {
 		secretVertex := g.getOrCreateVertex(VertexTypeSecret, seed.Spec.SecretRef.Namespace, seed.Spec.SecretRef.Name)
@@ -88,6 +109,11 @@ func (g *graph) handleSeedCreateOrUpdate(seed *gardencorev1beta1.Seed) {
 
 	if seed.Spec.Backup != nil {
 		secretVertex := g.getOrCreateVertex(VertexTypeSecret, seed.Spec.Backup.SecretRef.Namespace, seed.Spec.Backup.SecretRef.Name)
+		g.addEdge(secretVertex, seedVertex)
+	}
+
+	if seed.Spec.DNS.Provider != nil {
+		secretVertex := g.getOrCreateVertex(VertexTypeSecret, seed.Spec.DNS.Provider.SecretRef.Namespace, seed.Spec.DNS.Provider.SecretRef.Name)
 		g.addEdge(secretVertex, seedVertex)
 	}
 }
@@ -101,4 +127,16 @@ func (g *graph) handleSeedDelete(seed *gardencorev1beta1.Seed) {
 	defer g.lock.Unlock()
 
 	g.deleteVertex(VertexTypeSeed, "", seed.Name)
+}
+
+func seedDNSProviderSecretRefEqual(oldDNS, newDNS *gardencorev1beta1.SeedDNSProvider) bool {
+	if oldDNS == nil && newDNS == nil {
+		return true
+	}
+
+	if oldDNS != nil && newDNS != nil {
+		return apiequality.Semantic.DeepEqual(oldDNS.SecretRef, newDNS.SecretRef)
+	}
+
+	return false
 }

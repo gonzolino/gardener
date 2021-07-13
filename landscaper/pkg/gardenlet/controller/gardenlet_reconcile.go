@@ -25,14 +25,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/gardener/gardener/landscaper/pkg/gardenlet/chart"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	bootstraputil "github.com/gardener/gardener/pkg/gardenlet/bootstrap/util"
-	"github.com/gardener/gardener/pkg/utils"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/retry"
@@ -93,7 +92,7 @@ func (g *Landscaper) Reconcile(ctx context.Context) error {
 
 	var bootstrapKubeconfig []byte
 	if !isAlreadyBootstrapped {
-		bootstrapKubeconfig, err = g.getKubeconfigWithBootstrapToken(ctx, seedConfig.ObjectMeta.Name)
+		bootstrapKubeconfig, err = g.getKubeconfigWithBootstrapToken(ctx, seedConfig.ObjectMeta)
 		if err != nil {
 			return fmt.Errorf("failed to compute the bootstrap kubeconfig: %w", err)
 		}
@@ -197,12 +196,13 @@ func (g *Landscaper) waitForRolloutToBeComplete(ctx context.Context) error {
 	})
 }
 
-func (g *Landscaper) getKubeconfigWithBootstrapToken(ctx context.Context, seedName string) ([]byte, error) {
+func (g *Landscaper) getKubeconfigWithBootstrapToken(ctx context.Context, seedObjectMeta metav1.ObjectMeta) ([]byte, error) {
 	var (
-		tokenID  = utils.ComputeSHA256Hex([]byte(seedName))[:6]
-		validity = 24 * time.Hour
+		tokenID     = bootstraputil.TokenID(seedObjectMeta)
+		description = bootstraputil.Description(bootstraputil.KindSeed, "", seedObjectMeta.Name)
+		validity    = 24 * time.Hour
 	)
-	return bootstraputil.ComputeGardenletKubeconfigWithBootstrapToken(ctx, g.gardenClient.Client(), g.gardenClient.RESTConfig(), tokenID, fmt.Sprintf("A bootstrap token for the Gardenlet for seed %q.", seedName), validity)
+	return bootstraputil.ComputeGardenletKubeconfigWithBootstrapToken(ctx, g.gardenClient.Client(), g.gardenClient.RESTConfig(), tokenID, description, validity)
 }
 
 // isSeedBootstrapped checks is the Seed reconciled by this Gardenlet is exists and is healthy
@@ -232,16 +232,14 @@ func (g *Landscaper) deploySeedSecret(ctx context.Context, runtimeClusterKubecon
 		},
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, g.gardenClient.Client(), secret, func() error {
+	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, g.gardenClient.Client(), secret, func() error {
 		secret.Data = map[string][]byte{
 			kubernetes.KubeConfig: runtimeClusterKubeconfig,
 		}
 		secret.Type = corev1.SecretTypeOpaque
 		return nil
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
+	return err
 }
 
 func (g *Landscaper) deployBackupSecret(ctx context.Context, providerName string, credentials map[string][]byte, backupSecretRef corev1.SecretReference) error {
@@ -252,15 +250,13 @@ func (g *Landscaper) deployBackupSecret(ctx context.Context, providerName string
 		},
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, g.gardenClient.Client(), secret, func() error {
+	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, g.gardenClient.Client(), secret, func() error {
 		secret.Data = credentials
 		secret.Type = corev1.SecretTypeOpaque
 		secret.Labels = map[string]string{
 			"provider": providerName,
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
+	return err
 }

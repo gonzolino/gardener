@@ -294,6 +294,7 @@ webhooks:
     - bastions
     - containerruntimes
     - controlplanes
+    - dnsrecords
     - extensions
     - infrastructures
     - networks
@@ -360,8 +361,8 @@ status: {}
 				SecretRefs: []corev1.LocalObjectReference{
 					{Name: managedResourceSecretName},
 				},
-				KeepObjects: pointer.BoolPtr(false),
-				Class:       pointer.StringPtr("seed"),
+				KeepObjects: pointer.Bool(false),
+				Class:       pointer.String("seed"),
 			},
 		}
 	})
@@ -373,7 +374,7 @@ status: {}
 	Describe("#Deploy", func() {
 		It("should fail because the managed resource secret cannot be updated", func() {
 			gomock.InOrder(
-				c.EXPECT().List(ctx, gomock.Any()).DoAndReturn(
+				c.EXPECT().List(ctx, gomock.Any(), client.Limit(3)).DoAndReturn(
 					func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 						Expect(list).To(BeAssignableToTypeOf(&metav1.PartialObjectMetadataList{}))
 						list.(*metav1.PartialObjectMetadataList).Items = make([]metav1.PartialObjectMetadata, 3)
@@ -388,7 +389,7 @@ status: {}
 
 		It("should fail because the managed resource cannot be updated", func() {
 			gomock.InOrder(
-				c.EXPECT().List(ctx, gomock.Any()).DoAndReturn(
+				c.EXPECT().List(ctx, gomock.Any(), client.Limit(3)).DoAndReturn(
 					func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 						Expect(list).To(BeAssignableToTypeOf(&metav1.PartialObjectMetadataList{}))
 						list.(*metav1.PartialObjectMetadataList).Items = make([]metav1.PartialObjectMetadata, 3)
@@ -405,7 +406,7 @@ status: {}
 
 		It("should successfully deploy all resources", func() {
 			gomock.InOrder(
-				c.EXPECT().List(ctx, gomock.Any()).DoAndReturn(
+				c.EXPECT().List(ctx, gomock.Any(), client.Limit(3)).DoAndReturn(
 					func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 						Expect(list).To(BeAssignableToTypeOf(&metav1.PartialObjectMetadataList{}))
 						list.(*metav1.PartialObjectMetadataList).Items = make([]metav1.PartialObjectMetadata, 3)
@@ -428,7 +429,7 @@ status: {}
 			managedResourceSecret.Data["deployment__shoot--foo--bar__gardener-seed-admission-controller.yaml"] = []byte(strings.Replace(deploymentYAML, "replicas: 3", "replicas: 1", -1))
 
 			gomock.InOrder(
-				c.EXPECT().List(ctx, gomock.Any()).DoAndReturn(
+				c.EXPECT().List(ctx, gomock.Any(), client.Limit(3)).DoAndReturn(
 					func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 						Expect(list).To(BeAssignableToTypeOf(&metav1.PartialObjectMetadataList{}))
 						list.(*metav1.PartialObjectMetadataList).Items = make([]metav1.PartialObjectMetadata, 1)

@@ -26,12 +26,30 @@ EFFECTIVE_VERSION                      := $(VERSION)-$(shell git rev-parse HEAD)
 REPO_ROOT                              := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 LOCAL_GARDEN_LABEL                     := local-garden
 REMOTE_GARDEN_LABEL                    := remote-garden
-CR_VERSION                             := $(shell go list -m -f '{{ .Version }}' sigs.k8s.io/controller-runtime)
 ACTIVATE_SEEDAUTHORIZER                := false
+SEED_NAME                              := ""
+TOOLS_DIR                              := hack/tools
+TOOLS_BIN_DIR                          := $(TOOLS_DIR)/bin
+YQ                                     := $(TOOLS_BIN_DIR)/yq
+OS                                     := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH                                   := $(shell uname -m)
+
+ifeq ($(ARCH),x86_64)
+	ARCH := amd64
+endif
 
 ifneq ($(strip $(shell git status --porcelain 2>/dev/null)),)
 	EFFECTIVE_VERSION := $(EFFECTIVE_VERSION)-dirty
 endif
+
+#########################################
+# Binaries                              #
+#########################################
+
+$(YQ):
+	mkdir -p "$(TOOLS_BIN_DIR)"
+	curl -L -o "$(YQ)" https://github.com/mikefarah/yq/releases/download/v4.9.6/yq_$(OS)_$(ARCH)
+	chmod +x "$(YQ)"
 
 #########################################
 # Rules for local development scenarios #
@@ -82,7 +100,7 @@ start-seed-admission-controller:
 	@./hack/local-development/start-seed-admission-controller
 
 .PHONY: start-gardenlet
-start-gardenlet:
+start-gardenlet: $(YQ)
 	@./hack/local-development/start-gardenlet
 
 .PHONY: start-landscaper-gardenlet
@@ -156,6 +174,7 @@ install-requirements:
 	@go install -mod=vendor github.com/onsi/ginkgo/ginkgo
 	@go install -mod=vendor github.com/ahmetb/gen-crd-api-reference-docs
 	@go install -mod=vendor github.com/golang/mock/mockgen
+	@go install -mod=vendor sigs.k8s.io/controller-runtime/tools/setup-envtest
 	@go install -mod=vendor sigs.k8s.io/controller-tools/cmd/controller-gen
 	@./hack/install-promtool.sh
 	@./hack/install-requirements.sh
@@ -164,9 +183,6 @@ install-requirements:
 revendor:
 	@GO111MODULE=on go mod vendor
 	@GO111MODULE=on go mod tidy
-	@curl -sSLo hack/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/$(CR_VERSION)/hack/setup-envtest.sh
-# TODO: Remove this once k8s.io/apimachinery is upgraded to v0.20.7, see https://github.com/kubernetes/kubernetes/pull/101326
-	@sed -i '169s/if skippy < 0 {/if (skippy < 0) || (iNdEx+skippy) < 0 {/' vendor/k8s.io/apimachinery/pkg/api/resource/quantity_proto.go
 
 .PHONY: clean
 clean:
@@ -205,13 +221,15 @@ format:
 
 .PHONY: test
 test:
-	@./hack/test.sh ./cmd/... ./extensions/... ./pkg/... ./plugin/... ./landscaper/...
-	$(MAKE) test-prometheus
+	@./hack/test.sh ./cmd/... ./extensions/pkg/... ./extensions/test/e2e/framework/... ./pkg/... ./plugin/... ./landscaper/...
+
+.PHONY: test-integration
+test-integration:
+	@./hack/test-integration.sh ./extensions/test/integration/envtest/... ./test/integration/envtest/...
 
 .PHONY: test-cov
 test-cov:
-	@./hack/test-cover.sh ./cmd/... ./extensions/... ./pkg/... ./plugin/... ./landscaper/...
-	$(MAKE) test-prometheus
+	@./hack/test-cover.sh ./cmd/... ./extensions/pkg/... ./extensions/test/e2e/framework/... ./pkg/... ./plugin/... ./landscaper/...
 
 .PHONY: test-cov-clean
 test-cov-clean:
@@ -222,7 +240,7 @@ test-prometheus:
 	@./hack/test-prometheus.sh
 
 .PHONY: verify
-verify: check format test
+verify: check format test test-integration test-prometheus
 
 .PHONY: verify-extended
-verify-extended: install-requirements check-generate check format test-cov test-cov-clean
+verify-extended: install-requirements check-generate check format test-cov test-cov-clean test-integration test-prometheus

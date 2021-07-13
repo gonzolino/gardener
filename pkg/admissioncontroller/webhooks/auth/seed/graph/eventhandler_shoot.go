@@ -15,17 +15,19 @@
 package graph
 
 import (
+	"context"
 	"time"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 )
 
-func (g *graph) setupShootWatch(informer cache.Informer) {
+func (g *graph) setupShootWatch(_ context.Context, informer cache.Informer) {
 	informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			shoot, ok := obj.(*gardencorev1beta1.Shoot)
@@ -79,10 +81,12 @@ func (g *graph) handleShootCreateOrUpdate(shoot *gardencorev1beta1.Shoot) {
 	defer g.lock.Unlock()
 
 	g.deleteAllIncomingEdges(VertexTypeCloudProfile, VertexTypeShoot, shoot.Namespace, shoot.Name)
+	g.deleteAllIncomingEdges(VertexTypeExposureClass, VertexTypeShoot, shoot.Namespace, shoot.Name)
 	g.deleteAllIncomingEdges(VertexTypeConfigMap, VertexTypeShoot, shoot.Namespace, shoot.Name)
 	g.deleteAllIncomingEdges(VertexTypeNamespace, VertexTypeShoot, shoot.Namespace, shoot.Name)
 	g.deleteAllIncomingEdges(VertexTypeSecret, VertexTypeShoot, shoot.Namespace, shoot.Name)
 	g.deleteAllIncomingEdges(VertexTypeSecretBinding, VertexTypeShoot, shoot.Namespace, shoot.Name)
+	g.deleteAllIncomingEdges(VertexTypeShootState, VertexTypeShoot, shoot.Namespace, shoot.Name)
 	g.deleteAllOutgoingEdges(VertexTypeShoot, shoot.Namespace, shoot.Name, VertexTypeSeed)
 
 	var (
@@ -104,6 +108,11 @@ func (g *graph) handleShootCreateOrUpdate(shoot *gardencorev1beta1.Shoot) {
 	if shoot.Status.SeedName != nil {
 		seedVertex := g.getOrCreateVertex(VertexTypeSeed, "", *shoot.Status.SeedName)
 		g.addEdge(shootVertex, seedVertex)
+	}
+
+	if shoot.Spec.ExposureClassName != nil {
+		exposureClassVertex := g.getOrCreateVertex(VertexTypeExposureClass, "", *shoot.Spec.ExposureClassName)
+		g.addEdge(exposureClassVertex, shootVertex)
 	}
 
 	if shoot.Spec.Kubernetes.KubeAPIServer != nil &&
@@ -131,6 +140,18 @@ func (g *graph) handleShootCreateOrUpdate(shoot *gardencorev1beta1.Shoot) {
 			g.addEdge(secretVertex, shootVertex)
 		}
 	}
+
+	// Those secrets are not directly referenced in the shoot spec, however, they will be created/updated as part of the
+	// gardenlet reconciliation and are bound to the lifetime of the shoot, so let's add them here.
+	for _, suffix := range gutil.GetShootProjectSecretSuffixes() {
+		secretVertex := g.getOrCreateVertex(VertexTypeSecret, shoot.Namespace, gutil.ComputeShootProjectSecretName(shoot.Name, suffix))
+		g.addEdge(secretVertex, shootVertex)
+	}
+
+	// Similarly, ShootStates are not directly referenced in the shoot spec, however, they will be created/updated/
+	// deleted as part of the gardenlet reconciliation and are bound to the lifetime of the shoot as well.
+	shootStateVertex := g.getOrCreateVertex(VertexTypeShootState, shoot.Namespace, shoot.Name)
+	g.addEdge(shootStateVertex, shootVertex)
 }
 
 func (g *graph) handleShootDelete(shoot *gardencorev1beta1.Shoot) {

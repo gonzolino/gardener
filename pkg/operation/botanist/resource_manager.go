@@ -20,34 +20,34 @@ import (
 
 	"github.com/gardener/gardener/charts"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/resourcemanager"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
+	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 )
 
 // DefaultResourceManager returns an instance of Gardener Resource Manager with defaults configured for being deployed in a Shoot namespace
-func (b *Botanist) DefaultResourceManager() (resourcemanager.ResourceManager, error) {
+func (b *Botanist) DefaultResourceManager() (resourcemanager.Interface, error) {
 	image, err := b.ImageVector.FindImage(charts.ImageNameGardenerResourceManager, imagevector.RuntimeVersion(b.SeedVersion()), imagevector.TargetVersion(b.ShootVersion()))
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := resourcemanager.Values{
-		AlwaysUpdate:               pointer.BoolPtr(true),
+		AlwaysUpdate:               pointer.Bool(true),
 		ClusterIdentity:            b.Seed.Info.Status.ClusterIdentity,
-		ConcurrentSyncs:            pointer.Int32Ptr(20),
+		ConcurrentSyncs:            pointer.Int32(20),
 		HealthSyncPeriod:           utils.DurationPtr(time.Minute),
-		MaxConcurrentHealthWorkers: pointer.Int32Ptr(10),
+		MaxConcurrentHealthWorkers: pointer.Int32(10),
 		SyncPeriod:                 utils.DurationPtr(time.Minute),
-		TargetDisableCache:         pointer.BoolPtr(true),
-		WatchedNamespace:           pointer.StringPtr(b.Shoot.SeedNamespace),
+		TargetDisableCache:         pointer.Bool(true),
+		WatchedNamespace:           pointer.String(b.Shoot.SeedNamespace),
 	}
 
 	// ensure grm is present during hibernation (if the cluster is not hibernated yet) to reconcile any changes to
@@ -82,4 +82,9 @@ func (b *Botanist) DeployGardenerResourceManager(ctx context.Context) error {
 	}
 
 	return b.Shoot.Components.ControlPlane.ResourceManager.Deploy(ctx)
+}
+
+// ScaleGardenerResourceManagerToOne scales the gardener-resource-manager deployment
+func (b *Botanist) ScaleGardenerResourceManagerToOne(ctx context.Context) error {
+	return kubernetes.ScaleDeployment(ctx, b.K8sSeedClient.Client(), kutil.Key(b.Shoot.SeedNamespace, v1beta1constants.DeploymentNameGardenerResourceManager), 1)
 }

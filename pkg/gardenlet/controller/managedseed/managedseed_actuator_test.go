@@ -146,7 +146,7 @@ var _ = Describe("Actuator", func() {
 			},
 			Spec: gardencorev1beta1.ShootSpec{
 				SecretBindingName: secretBindingName,
-				SeedName:          pointer.StringPtr(seedName),
+				SeedName:          pointer.String(seedName),
 			},
 			Status: gardencorev1beta1.ShootStatus{
 				LastOperation: &gardencorev1beta1.LastOperation{
@@ -215,12 +215,12 @@ var _ = Describe("Actuator", func() {
 		}
 		gardenlet = &seedmanagementv1alpha1.Gardenlet{
 			Deployment: &seedmanagementv1alpha1.GardenletDeployment{
-				ReplicaCount:         pointer.Int32Ptr(1),
-				RevisionHistoryLimit: pointer.Int32Ptr(1),
+				ReplicaCount:         pointer.Int32(1),
+				RevisionHistoryLimit: pointer.Int32(1),
 				Image: &seedmanagementv1alpha1.Image{
 					PullPolicy: pullPolicyPtr(corev1.PullIfNotPresent),
 				},
-				VPA: pointer.BoolPtr(true),
+				VPA: pointer.Bool(true),
 			},
 			Config: runtime.RawExtension{
 				Object: &configv1alpha1.GardenletConfiguration{
@@ -234,7 +234,7 @@ var _ = Describe("Actuator", func() {
 				},
 			},
 			Bootstrap:       bootstrapPtr(seedmanagementv1alpha1.BootstrapToken),
-			MergeWithParent: pointer.BoolPtr(true),
+			MergeWithParent: pointer.Bool(true),
 		}
 
 		gardenNamespace = &corev1.Namespace{
@@ -309,7 +309,7 @@ var _ = Describe("Actuator", func() {
 				},
 			)
 			shc.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
-				func(_ context.Context, ns *corev1.Namespace) error {
+				func(_ context.Context, ns *corev1.Namespace, _ ...client.CreateOption) error {
 					Expect(ns.Name).To(Equal(v1beta1constants.GardenNamespace))
 					return nil
 				},
@@ -318,7 +318,7 @@ var _ = Describe("Actuator", func() {
 
 		expectDeleteGardenNamespace = func() {
 			shc.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
-				func(_ context.Context, ns *corev1.Namespace) error {
+				func(_ context.Context, ns *corev1.Namespace, _ ...client.DeleteOption) error {
 					Expect(ns.Name).To(Equal(v1beta1constants.GardenNamespace))
 					return nil
 				},
@@ -373,9 +373,9 @@ var _ = Describe("Actuator", func() {
 				func(_ context.Context, _ client.ObjectKey, _ *corev1.Secret) error {
 					return apierrors.NewNotFound(corev1.Resource("secret"), backupSecretName)
 				},
-			).Times(2)
+			)
 			gc.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, s *corev1.Secret) error {
+				func(_ context.Context, s *corev1.Secret, _ ...client.CreateOption) error {
 					Expect(s).To(Equal(backupSecret))
 					return nil
 				},
@@ -388,13 +388,8 @@ var _ = Describe("Actuator", func() {
 					return nil
 				},
 			)
-			gc.EXPECT().Get(ctx, kutil.Key(namespace, seedSecretName), gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, _ client.ObjectKey, _ *corev1.Secret) error {
-					return apierrors.NewNotFound(corev1.Resource("secret"), seedSecretName)
-				},
-			)
 			gc.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, s *corev1.Secret) error {
+				func(_ context.Context, s *corev1.Secret, _ ...client.CreateOption) error {
 					Expect(s).To(Equal(seedSecret))
 					return nil
 				},
@@ -410,7 +405,7 @@ var _ = Describe("Actuator", func() {
 				},
 			)
 			gc.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, s *corev1.Secret) error {
+				func(_ context.Context, s *corev1.Secret, _ ...client.DeleteOption) error {
 					Expect(s.Name).To(Equal(backupSecretName))
 					Expect(s.Namespace).To(Equal(namespace))
 					return nil
@@ -419,7 +414,7 @@ var _ = Describe("Actuator", func() {
 
 			// Delete seed secret
 			gc.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, s *corev1.Secret) error {
+				func(_ context.Context, s *corev1.Secret, _ ...client.DeleteOption) error {
 					Expect(s.Name).To(Equal(seedSecretName))
 					Expect(s.Namespace).To(Equal(namespace))
 					return nil
@@ -452,13 +447,8 @@ var _ = Describe("Actuator", func() {
 		}
 
 		expectCreateSeed = func() {
-			gc.EXPECT().Get(ctx, kutil.Key(name), gomock.AssignableToTypeOf(&gardencorev1beta1.Seed{})).DoAndReturn(
-				func(_ context.Context, _ client.ObjectKey, _ *gardencorev1beta1.Seed) error {
-					return apierrors.NewNotFound(gardencorev1beta1.Resource("seed"), name)
-				},
-			)
 			gc.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&gardencorev1beta1.Seed{})).DoAndReturn(
-				func(_ context.Context, s *gardencorev1beta1.Seed) error {
+				func(_ context.Context, s *gardencorev1beta1.Seed, _ ...client.CreateOption) error {
 					Expect(s).To(Equal(seed))
 					return nil
 				},
@@ -467,7 +457,7 @@ var _ = Describe("Actuator", func() {
 
 		expectDeleteSeed = func() {
 			gc.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&gardencorev1beta1.Seed{})).DoAndReturn(
-				func(_ context.Context, s *gardencorev1beta1.Seed) error {
+				func(_ context.Context, s *gardencorev1beta1.Seed, _ ...client.DeleteOption) error {
 					Expect(s.Name).To(Equal(name))
 					return nil
 				},
@@ -489,8 +479,8 @@ var _ = Describe("Actuator", func() {
 		expectMergeWithParent = func() {
 			mergedDeployment = managedSeed.Spec.Gardenlet.Deployment.DeepCopy()
 			mergedDeployment.Image = &seedmanagementv1alpha1.Image{
-				Repository: pointer.StringPtr("repository"),
-				Tag:        pointer.StringPtr("tag"),
+				Repository: pointer.String("repository"),
+				Tag:        pointer.String("tag"),
 				PullPolicy: pullPolicyPtr(corev1.PullIfNotPresent),
 			}
 
@@ -500,7 +490,6 @@ var _ = Describe("Actuator", func() {
 					Kubeconfig: "kubeconfig",
 				},
 			}
-			mergedGardenletConfig.SeedSelector = &metav1.LabelSelector{}
 
 			vh.EXPECT().MergeGardenletDeployment(managedSeed.Spec.Gardenlet.Deployment, shoot).Return(mergedDeployment, nil)
 			vh.EXPECT().MergeGardenletConfiguration(managedSeed.Spec.Gardenlet.Config.Object).Return(mergedGardenletConfig, nil)
@@ -515,17 +504,17 @@ var _ = Describe("Actuator", func() {
 			)
 
 			// Create bootstrap token secret
-			gc.EXPECT().Get(ctx, kutil.Key(metav1.NamespaceSystem, "bootstrap-token-9f86d0"), gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
+			gc.EXPECT().Get(ctx, kutil.Key(metav1.NamespaceSystem, "bootstrap-token-a82f8a"), gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
 				func(_ context.Context, _ client.ObjectKey, _ *corev1.Secret) error {
-					return apierrors.NewNotFound(corev1.Resource("secret"), "bootstrap-token-9f86d0")
+					return apierrors.NewNotFound(corev1.Resource("secret"), "bootstrap-token-a82f8a")
 				},
 			).Times(3)
 			gc.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
-				func(_ context.Context, s *corev1.Secret) error {
-					Expect(s.Name).To(Equal("bootstrap-token-9f86d0"))
+				func(_ context.Context, s *corev1.Secret, _ ...client.CreateOption) error {
+					Expect(s.Name).To(Equal("bootstrap-token-a82f8a"))
 					Expect(s.Namespace).To(Equal(metav1.NamespaceSystem))
 					Expect(s.Type).To(Equal(corev1.SecretTypeBootstrapToken))
-					Expect(s.Data).To(HaveKeyWithValue("token-id", []byte("9f86d0")))
+					Expect(s.Data).To(HaveKeyWithValue("token-id", []byte("a82f8a")))
 					Expect(s.Data).To(HaveKey("token-secret"))
 					Expect(s.Data).To(HaveKeyWithValue("usage-bootstrap-signing", []byte("true")))
 					Expect(s.Data).To(HaveKeyWithValue("usage-bootstrap-authentication", []byte("true")))
@@ -562,7 +551,7 @@ var _ = Describe("Actuator", func() {
 						},
 						Spec: seedTemplate.Spec,
 					}))
-					Expect(gc.SeedSelector).To(BeNil())
+
 					return gardenletChartValues, nil
 				},
 			)
@@ -593,6 +582,7 @@ var _ = Describe("Actuator", func() {
 		BeforeEach(func() {
 			clientMap.EXPECT().GetClient(ctx, keys.ForShoot(shoot)).Return(shootClient, nil).AnyTimes()
 			clientMap.EXPECT().GetClient(ctx, keys.ForSeedWithName(seedName)).Return(seedClient, nil).AnyTimes()
+			gc.EXPECT().Scheme().Return(kubernetes.GardenScheme).AnyTimes()
 		})
 
 		It("should wait if the Shoot is still reconciling", func() {
@@ -935,7 +925,7 @@ var _ = Describe("Utils", func() {
 			}
 
 			dnsWithDomain = &gardencorev1beta1.DNS{
-				Domain: pointer.StringPtr("my-shoot.example.com"),
+				Domain: pointer.String("my-shoot.example.com"),
 			}
 			dnsWithoutDomain = &gardencorev1beta1.DNS{
 				Domain: nil,

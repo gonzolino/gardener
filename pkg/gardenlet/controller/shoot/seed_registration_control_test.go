@@ -20,7 +20,7 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
-	"github.com/gardener/gardener/pkg/apis/seedmanagement/helper"
+	"github.com/gardener/gardener/pkg/apis/seedmanagement/encoding"
 	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap/keys"
 	mockclientmap "github.com/gardener/gardener/pkg/client/kubernetes/clientmap/mock"
@@ -120,7 +120,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 						},
 					).Times(2)
 					c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
-						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed) error {
+						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed, _ ...client.CreateOption) error {
 							Expect(ms).To(Equal(&seedmanagementv1alpha1.ManagedSeed{
 								ObjectMeta: metav1.ObjectMeta{
 									Name:      name,
@@ -178,7 +178,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 						},
 					).Times(2)
 					c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
-						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed) error {
+						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed, _ ...client.CreateOption) error {
 							Expect(ms).To(Equal(&seedmanagementv1alpha1.ManagedSeed{
 								ObjectMeta: metav1.ObjectMeta{
 									Name:      name,
@@ -198,12 +198,12 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 										Spec: gardencorev1beta1.SeedSpec{
 											Backup: &gardencorev1beta1.SeedBackup{
 												Provider: "gcp",
-												Region:   pointer.StringPtr("europe-north1"),
+												Region:   pointer.String("europe-north1"),
 											},
 											Networks: gardencorev1beta1.SeedNetworks{
 												ShootDefaults: &gardencorev1beta1.ShootNetworks{
-													Pods:     pointer.StringPtr("100.96.0.0/11"),
-													Services: pointer.StringPtr("100.64.0.0/13"),
+													Pods:     pointer.String("100.96.0.0/11"),
+													Services: pointer.String("100.64.0.0/13"),
 												},
 												BlockCIDRs: []string{"169.254.169.254/32"},
 											},
@@ -264,7 +264,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 						},
 					).Times(2)
 					c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
-						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed) error {
+						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed, _ ...client.CreateOption) error {
 							Expect(ms).To(Equal(&seedmanagementv1alpha1.ManagedSeed{
 								ObjectMeta: metav1.ObjectMeta{
 									Name:      name,
@@ -311,7 +311,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 											},
 										}),
 										Bootstrap:       bootstrapPtr(seedmanagementv1alpha1.BootstrapToken),
-										MergeWithParent: pointer.BoolPtr(true),
+										MergeWithParent: pointer.Bool(true),
 									},
 								},
 							}))
@@ -335,7 +335,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 						},
 					).Times(2)
 					c.EXPECT().Create(ctx, gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
-						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed) error {
+						func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed, _ ...client.CreateOption) error {
 							Expect(ms).To(Equal(&seedmanagementv1alpha1.ManagedSeed{
 								ObjectMeta: metav1.ObjectMeta{
 									Name:      name,
@@ -370,12 +370,12 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 													Spec: gardencorev1beta1.SeedSpec{
 														Backup: &gardencorev1beta1.SeedBackup{
 															Provider: "gcp",
-															Region:   pointer.StringPtr("europe-north1"),
+															Region:   pointer.String("europe-north1"),
 														},
 														Networks: gardencorev1beta1.SeedNetworks{
 															ShootDefaults: &gardencorev1beta1.ShootNetworks{
-																Pods:     pointer.StringPtr("100.96.0.0/11"),
-																Services: pointer.StringPtr("100.64.0.0/13"),
+																Pods:     pointer.String("100.96.0.0/11"),
+																Services: pointer.String("100.64.0.0/13"),
 															},
 															BlockCIDRs: []string{"169.254.169.254/32"},
 														},
@@ -415,7 +415,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 											},
 										}),
 										Bootstrap:       bootstrapPtr(seedmanagementv1alpha1.BootstrapServiceAccount),
-										MergeWithParent: pointer.BoolPtr(true),
+										MergeWithParent: pointer.Bool(true),
 									},
 								},
 							}))
@@ -452,7 +452,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 					},
 				)
 				c.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
-					func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed) error {
+					func(_ context.Context, ms *seedmanagementv1alpha1.ManagedSeed, _ ...client.DeleteOption) error {
 						Expect(ms.Name).To(Equal(name))
 						Expect(ms.Namespace).To(Equal(namespace))
 						return nil
@@ -468,7 +468,7 @@ var _ = Describe("DefaultSeedRegistrationControl", func() {
 })
 
 func rawExtension(cfg *configv1alpha1.GardenletConfiguration) runtime.RawExtension {
-	re, _ := helper.EncodeGardenletConfiguration(cfg)
+	re, _ := encoding.EncodeGardenletConfiguration(cfg)
 	return *re
 }
 

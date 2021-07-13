@@ -66,7 +66,7 @@ var _ = Describe("Scheduler_Control", func() {
 					Region: region,
 				},
 				Networks: gardencorev1beta1.SeedNetworks{
-					Nodes:    pointer.StringPtr("10.10.0.0/16"),
+					Nodes:    pointer.String("10.10.0.0/16"),
 					Pods:     "10.20.0.0/16",
 					Services: "10.30.0.0/16",
 				},
@@ -104,9 +104,9 @@ var _ = Describe("Scheduler_Control", func() {
 					Type: providerType,
 				},
 				Networking: gardencorev1beta1.Networking{
-					Nodes:    pointer.StringPtr("10.40.0.0/16"),
-					Pods:     pointer.StringPtr("10.50.0.0/16"),
-					Services: pointer.StringPtr("10.60.0.0/16"),
+					Nodes:    pointer.String("10.40.0.0/16"),
+					Pods:     pointer.String("10.50.0.0/16"),
+					Services: pointer.String("10.60.0.0/16"),
 				},
 			},
 		}
@@ -246,7 +246,6 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should succeed because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) cross provider", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: nil,
 				ProviderTypes: []string{providerType},
 			}
 			shoot.Spec.Region = anotherRegion
@@ -268,7 +267,6 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should succeed because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) any provider", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: nil,
 				ProviderTypes: []string{"*"},
 			}
 			shoot.Spec.Region = anotherRegion
@@ -290,11 +288,10 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should succeed because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) matching labels", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"select": "true",
 					},
-					MatchExpressions: nil,
 				},
 				ProviderTypes: []string{"*"},
 			}
@@ -336,11 +333,10 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should fail because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) no matching labels", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"select": "true",
 					},
-					MatchExpressions: nil,
 				},
 				ProviderTypes: []string{providerType},
 			}
@@ -361,11 +357,10 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should fail because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) matching labels but not type", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"select": "true",
 					},
-					MatchExpressions: nil,
 				},
 			}
 			seed.Labels = map[string]string{"select": "true"}
@@ -498,7 +493,7 @@ var _ = Describe("Scheduler_Control", func() {
 			newCloudProfile := cloudProfile
 			newCloudProfile.Name = "cloudprofile2"
 			newCloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"environment": "two",
 					},
@@ -544,7 +539,7 @@ var _ = Describe("Scheduler_Control", func() {
 			newCloudProfile := cloudProfile
 			newCloudProfile.Name = "cloudprofile2"
 			newCloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"environment": "two",
 					},
@@ -577,7 +572,7 @@ var _ = Describe("Scheduler_Control", func() {
 			testShoot.Spec.CloudProfileName = "cloudprofile2"
 			testShoot.Spec.Provider.Type = "some-type"
 			testShoot.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"my-preferred": "seed"}},
+				LabelSelector: metav1.LabelSelector{MatchLabels: map[string]string{"my-preferred": "seed"}},
 			}
 
 			reader.EXPECT().Get(ctx, kutil.Key(newCloudProfile.Name), gomock.AssignableToTypeOf(&gardencorev1beta1.CloudProfile{})).DoAndReturn(func(_ context.Context, _ client.ObjectKey, actual *gardencorev1beta1.CloudProfile) error {
@@ -662,8 +657,8 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should find a seed cluster 1) referencing the same profile 2) same region 3) indicating availability 4) using shoot default networks", func() {
 			seed.Spec.Networks.ShootDefaults = &gardencorev1beta1.ShootNetworks{
-				Pods:     pointer.StringPtr("10.50.0.0/16"),
-				Services: pointer.StringPtr("10.60.0.0/16"),
+				Pods:     pointer.String("10.50.0.0/16"),
+				Services: pointer.String("10.60.0.0/16"),
 			}
 			shoot.Spec.Networking.Pods = nil
 			shoot.Spec.Networking.Services = nil
@@ -817,7 +812,7 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should fail because the cloudprofile used by the shoot doesn't select any seed candidate", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"foo": "bar",
 					},
@@ -840,7 +835,7 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should fail because the shoot doesn't select any seed candidate", func() {
 			shoot.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
-				LabelSelector: &metav1.LabelSelector{
+				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"foo": "bar",
 					},
@@ -1019,30 +1014,6 @@ var _ = Describe("Scheduler_Control", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(candidates)).To(Equal(1))
 			Expect(candidates[0].Name).To(Equal(oldSeedEnvironment1.Name))
-		})
-
-	})
-
-	Context("Scheduling", func() {
-		var (
-			shoot = shootBase.DeepCopy()
-			seed  = *seedBase.DeepCopy()
-		)
-
-		It("should request the scheduling of the shoot to the seed", func() {
-			var runtimeClient = mockclient.NewMockClient(ctrl)
-
-			shoot.Spec.SeedName = &seed.Name
-			runtimeClient.EXPECT().Update(context.TODO(), shoot).DoAndReturn(func(_ context.Context, _ client.Object) error {
-				return nil
-			})
-
-			executeSchedulingRequest := func(ctx context.Context, shoot *gardencorev1beta1.Shoot) error {
-				return runtimeClient.Update(ctx, shoot)
-			}
-
-			err := UpdateShootToBeScheduledOntoSeed(context.TODO(), shoot, &seed, executeSchedulingRequest)
-			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })

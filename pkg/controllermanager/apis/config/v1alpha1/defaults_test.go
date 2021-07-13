@@ -17,14 +17,14 @@ package v1alpha1_test
 import (
 	"time"
 
+	. "github.com/gardener/gardener/pkg/controllermanager/apis/config/v1alpha1"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentbaseconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/pointer"
-
-	. "github.com/gardener/gardener/pkg/controllermanager/apis/config/v1alpha1"
 )
 
 var _ = Describe("Defaults", func() {
@@ -43,6 +43,10 @@ var _ = Describe("Defaults", func() {
 			Expect(obj.Server.HTTPS.BindAddress).To(Equal("0.0.0.0"))
 			Expect(obj.Server.HTTPS.Port).To(Equal(2719))
 
+			Expect(obj.Controllers.Bastion).NotTo(BeNil())
+			Expect(obj.Controllers.Bastion.ConcurrentSyncs).To(Equal(5))
+			Expect(obj.Controllers.Bastion.MaxLifetime).To(PointTo(Equal(metav1.Duration{Duration: 24 * time.Hour})))
+
 			Expect(obj.Controllers.CloudProfile).NotTo(BeNil())
 			Expect(obj.Controllers.CloudProfile.ConcurrentSyncs).To(Equal(5))
 
@@ -51,6 +55,9 @@ var _ = Describe("Defaults", func() {
 
 			Expect(obj.Controllers.ControllerRegistration).NotTo(BeNil())
 			Expect(obj.Controllers.ControllerRegistration.ConcurrentSyncs).To(Equal(5))
+
+			Expect(obj.Controllers.ExposureClass).NotTo(BeNil())
+			Expect(obj.Controllers.ExposureClass.ConcurrentSyncs).To(Equal(5))
 
 			Expect(obj.Controllers.Plant).NotTo(BeNil())
 			Expect(obj.Controllers.Plant.ConcurrentSyncs).To(Equal(5))
@@ -134,7 +141,7 @@ var _ = Describe("Defaults", func() {
 			It("should not overwrite custom settings", func() {
 				expectedLeaderElection := &LeaderElectionConfiguration{
 					LeaderElectionConfiguration: componentbaseconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   pointer.BoolPtr(true),
+						LeaderElect:   pointer.Bool(true),
 						ResourceLock:  "foo",
 						RetryPeriod:   metav1.Duration{Duration: 40 * time.Second},
 						RenewDeadline: metav1.Duration{Duration: 41 * time.Second},

@@ -51,7 +51,7 @@ type reconciler struct {
 	config    *config.GardenletConfiguration
 }
 
-// newReconciler returns the new backupBucker reconciler.
+// newReconciler returns the new backupEntry reconciler.
 func newReconciler(clientMap clientmap.ClientMap, recorder record.EventRecorder, config *config.GardenletConfiguration) reconcile.Reconciler {
 	return &reconciler{
 		clientMap: clientMap,
@@ -85,7 +85,7 @@ func (r *reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return r.migrateBackupEntry(ctx, gardenClient, be)
 	}
 
-	if !controllerutils.BackupEntryIsManagedByThisGardenlet(ctx, gardenClient.Client(), be, r.config) {
+	if !controllerutils.BackupEntryIsManagedByThisGardenlet(be, r.config) {
 		r.logger.Debugf("Skipping because BackupEntry is not managed by this gardenlet in seed %s", *be.Spec.SeedName)
 		return reconcile.Result{}, nil
 	}

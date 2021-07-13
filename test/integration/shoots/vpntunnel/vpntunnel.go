@@ -18,10 +18,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"strings"
 	"time"
 
+	"github.com/gardener/gardener/pkg/controllerutils"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/test/framework"
 	"github.com/gardener/gardener/test/framework/resources/templates"
@@ -35,12 +36,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
 	deploymentName = "logging-pod"
-	namespace      = "default"
+	namespace      = metav1.NamespaceDefault
 	logsCount      = 100000
 	logsDuration   = "1s"
 	loggerAppLabel = "vpnTunnelTesting"
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Shoot vpn tunnel testing", func() {
 		framework.ExpectNoError(err)
 
 		testSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: copyDeployment, Namespace: namespace}}
-		_, err = controllerutil.CreateOrUpdate(ctx, f.ShootClient.Client(), testSecret, func() error {
+		_, err = controllerutils.GetAndCreateOrMergePatch(ctx, f.ShootClient.Client(), testSecret, func() error {
 			testSecret.Type = corev1.SecretTypeOpaque
 			testSecret.Data = kubeCfgSecret.Data
 			return nil
@@ -177,13 +177,13 @@ var _ = ginkgo.Describe("Shoot vpn tunnel testing", func() {
 		podExecutor := framework.NewPodExecutor(f.ShootClient)
 		for _, pod := range pods.Items {
 			ginkgo.By(fmt.Sprintf("Copy data to target-container in pod %s", pod.Name))
-			reader, err := podExecutor.Execute(ctx, pod.Namespace, pod.Name, "hyperkube", fmt.Sprintf("kubectl cp /data/data %s/%s:/data/data -c target-container", pod.Namespace, pod.Name))
+			reader, err := podExecutor.Execute(ctx, pod.Namespace, pod.Name, "source-container", fmt.Sprintf("/data/kubectl cp /data/data %s/%s:/data/data -c target-container", pod.Namespace, pod.Name))
 			if apierrors.IsNotFound(err) {
 				f.Logger.Infof("Aborting as pod %s was not found anymore: %s", pod.Name, err)
 				break
 			}
 			framework.ExpectNoError(err)
-			output, err := ioutil.ReadAll(reader)
+			output, err := io.ReadAll(reader)
 			framework.ExpectNoError(err)
 			f.Logger.Infof("Got output from 'kubectl cp': %s", string(output))
 		}

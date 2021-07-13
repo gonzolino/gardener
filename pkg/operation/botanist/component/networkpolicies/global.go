@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	gardenletconfigv1alpha1 "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -36,11 +37,9 @@ type GlobalValues struct {
 	// DenyAllTraffic states whether all traffic should be denied by default and must be explicitly allowed by dedicated
 	// network policy rules.
 	DenyAllTraffic bool
-	// NodeLocalDNSEnabled states whether the node-local DNS feature for shoot clusters is enabled.
-	NodeLocalDNSEnabled bool
-	// NodeLocalIPVSAddress is the CIDR of the node-local IPVS address. Only meaningful when NodeLocalDNSEnabled=true.
+	// NodeLocalIPVSAddress is the CIDR of the node-local IPVS address.
 	NodeLocalIPVSAddress *string
-	// DNSServerAddress is the CIDR of the usual DNS server address. Only meaningful when NodeLocalDNSEnabled=true.
+	// DNSServerAddress is the CIDR of the usual DNS server address.
 	DNSServerAddress *string
 }
 
@@ -128,7 +127,7 @@ func getGlobalNetworkPolicyTransformers(values GlobalValues) []networkPolicyTran
 							NamespaceSelector: &metav1.LabelSelector{},
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									v1beta1constants.LabelApp: "istio-ingressgateway",
+									v1beta1constants.LabelApp: gardenletconfigv1alpha1.DefaultIngressGatewayAppLabelValue,
 								},
 							},
 						})
@@ -213,24 +212,22 @@ func getGlobalNetworkPolicyTransformers(values GlobalValues) []networkPolicyTran
 						PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 					}
 
-					if values.NodeLocalDNSEnabled {
-						if values.DNSServerAddress != nil {
-							obj.Spec.Egress[0].To = append(obj.Spec.Egress[0].To, networkingv1.NetworkPolicyPeer{
-								IPBlock: &networkingv1.IPBlock{
-									// required for node local dns feature, allows egress traffic to kube-dns
-									CIDR: fmt.Sprintf("%s/32", *values.DNSServerAddress),
-								},
-							})
-						}
+					if values.DNSServerAddress != nil {
+						obj.Spec.Egress[0].To = append(obj.Spec.Egress[0].To, networkingv1.NetworkPolicyPeer{
+							IPBlock: &networkingv1.IPBlock{
+								// required for node local dns feature, allows egress traffic to kube-dns
+								CIDR: fmt.Sprintf("%s/32", *values.DNSServerAddress),
+							},
+						})
+					}
 
-						if values.NodeLocalIPVSAddress != nil {
-							obj.Spec.Egress[0].To = append(obj.Spec.Egress[0].To, networkingv1.NetworkPolicyPeer{
-								IPBlock: &networkingv1.IPBlock{
-									// required for node local dns feature, allows egress traffic to node local dns cache
-									CIDR: fmt.Sprintf("%s/32", *values.NodeLocalIPVSAddress),
-								},
-							})
-						}
+					if values.NodeLocalIPVSAddress != nil {
+						obj.Spec.Egress[0].To = append(obj.Spec.Egress[0].To, networkingv1.NetworkPolicyPeer{
+							IPBlock: &networkingv1.IPBlock{
+								// required for node local dns feature, allows egress traffic to node local dns cache
+								CIDR: fmt.Sprintf("%s/32", *values.NodeLocalIPVSAddress),
+							},
+						})
 					}
 
 					return nil

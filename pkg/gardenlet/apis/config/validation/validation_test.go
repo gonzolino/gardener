@@ -46,12 +46,15 @@ var _ = Describe("GardenletConfiguration", func() {
 					DeletionGracePeriodHours:         &deletionGracePeriodHours,
 					DeletionGracePeriodShootPurposes: []gardencore.ShootPurpose{gardencore.ShootPurposeDevelopment},
 				},
+				Bastion: &config.BastionControllerConfiguration{
+					ConcurrentSyncs: &concurrentSyncs,
+				},
 				Shoot: &config.ShootControllerConfiguration{
 					ConcurrentSyncs:      &concurrentSyncs,
 					ProgressReportPeriod: &metav1.Duration{Duration: time.Hour},
 					SyncPeriod:           &metav1.Duration{Duration: time.Hour},
 					RetryDuration:        &metav1.Duration{Duration: time.Hour},
-					DNSEntryTTLSeconds:   pointer.Int64Ptr(120),
+					DNSEntryTTLSeconds:   pointer.Int64(120),
 				},
 				ManagedSeed: &config.ManagedSeedControllerConfiguration{
 					ConcurrentSyncs:  &concurrentSyncs,
@@ -60,6 +63,7 @@ var _ = Describe("GardenletConfiguration", func() {
 					SyncJitterPeriod: &metav1.Duration{Duration: 5 * time.Minute},
 				},
 			},
+			FeatureGates: map[string]bool{},
 			SeedConfig: &config.SeedConfig{
 				SeedTemplate: gardencore.SeedTemplate{
 					ObjectMeta: metav1.ObjectMeta{
@@ -69,7 +73,7 @@ var _ = Describe("GardenletConfiguration", func() {
 					},
 					Spec: gardencore.SeedSpec{
 						DNS: gardencore.SeedDNS{
-							IngressDomain: pointer.StringPtr("ingress.test.example.com"),
+							IngressDomain: pointer.String("ingress.test.example.com"),
 						},
 						Networks: gardencore.SeedNetworks{
 							Pods:     "100.96.0.0/11",
@@ -133,7 +137,7 @@ var _ = Describe("GardenletConfiguration", func() {
 			})
 
 			It("should forbid too low values for the DNS TTL", func() {
-				cfg.Controllers.Shoot.DNSEntryTTLSeconds = pointer.Int64Ptr(-1)
+				cfg.Controllers.Shoot.DNSEntryTTLSeconds = pointer.Int64(-1)
 
 				errorList := ValidateGardenletConfiguration(cfg, nil, false)
 
@@ -144,7 +148,7 @@ var _ = Describe("GardenletConfiguration", func() {
 			})
 
 			It("should forbid too high values for the DNS TTL", func() {
-				cfg.Controllers.Shoot.DNSEntryTTLSeconds = pointer.Int64Ptr(601)
+				cfg.Controllers.Shoot.DNSEntryTTLSeconds = pointer.Int64(601)
 
 				errorList := ValidateGardenletConfiguration(cfg, nil, false)
 
@@ -223,21 +227,25 @@ var _ = Describe("GardenletConfiguration", func() {
 			})
 		})
 
-		Context("seed selector/config", func() {
-			It("should forbid specifying neither a seed selector nor a seed config", func() {
-				cfg.SeedSelector = nil
-				cfg.SeedConfig = nil
+		Context("bastion controller", func() {
+			It("should forbid invalid configuration", func() {
+				invalidConcurrentSyncs := -1
+				cfg.Controllers.Bastion.ConcurrentSyncs = &invalidConcurrentSyncs
 
 				errorList := ValidateGardenletConfiguration(cfg, nil, false)
 
-				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
-					"Type":  Equal(field.ErrorTypeInvalid),
-					"Field": Equal("seedConfig"),
-				}))))
+				Expect(errorList).To(ConsistOf(
+					PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":  Equal(field.ErrorTypeInvalid),
+						"Field": Equal("controllers.bastion.concurrentSyncs"),
+					})),
+				))
 			})
+		})
 
-			It("should forbid specifying both a seed selector and a seed config", func() {
-				cfg.SeedSelector = &metav1.LabelSelector{}
+		Context("seed config", func() {
+			It("should require a seedConfig", func() {
+				cfg.SeedConfig = nil
 
 				errorList := ValidateGardenletConfiguration(cfg, nil, false)
 
@@ -250,7 +258,7 @@ var _ = Describe("GardenletConfiguration", func() {
 
 		Context("seed template", func() {
 			It("should forbid invalid fields in seed template", func() {
-				cfg.SeedConfig.Spec.Networks.Nodes = pointer.StringPtr("")
+				cfg.SeedConfig.Spec.Networks.Nodes = pointer.String("")
 
 				errorList := ValidateGardenletConfiguration(cfg, nil, false)
 
@@ -314,6 +322,130 @@ var _ = Describe("GardenletConfiguration", func() {
 					"Type":  Equal(field.ErrorTypeInvalid),
 					"Field": Equal("resources.reserved.foo"),
 				}))))
+			})
+		})
+
+		Context("sni", func() {
+			BeforeEach(func() {
+				cfg.SNI = &config.SNI{Ingress: &config.SNIIngress{}}
+			})
+
+			It("should pass as sni config contains a valid external service ip", func() {
+				cfg.SNI.Ingress.ServiceExternalIP = pointer.StringPtr("1.1.1.1")
+
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+				Expect(errorList).To(BeEmpty())
+			})
+
+			It("should forbid as sni config contains an empty external service ip", func() {
+				cfg.SNI.Ingress.ServiceExternalIP = pointer.StringPtr("")
+
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("sni.ingress.serviceExternalIP"),
+				}))))
+			})
+
+			It("should forbid as sni config contains an invalid external service ip", func() {
+				cfg.SNI.Ingress.ServiceExternalIP = pointer.StringPtr("a.b.c.d")
+
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("sni.ingress.serviceExternalIP"),
+				}))))
+			})
+		})
+
+		Context("exposureClassHandlers", func() {
+			BeforeEach(func() {
+				cfg.ExposureClassHandlers = []config.ExposureClassHandler{
+					{
+						Name: "test",
+						LoadBalancerService: config.LoadBalancerServiceConfig{
+							Annotations: map[string]string{"test": "foo"},
+						},
+						SNI: &config.SNI{Ingress: &config.SNIIngress{}},
+					},
+				}
+			})
+
+			It("should pass valid exposureClassHandler", func() {
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+				Expect(errorList).To(BeEmpty())
+			})
+
+			It("should fail as exposureClassHandler name is no DNS1123 label with zero length", func() {
+				cfg.ExposureClassHandlers[0].Name = ""
+
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+
+				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("exposureClassHandlers[0].name"),
+				}))))
+			})
+
+			It("should fail as exposureClassHandler name is no DNS1123 label", func() {
+				cfg.ExposureClassHandlers[0].Name = "TE:ST"
+
+				errorList := ValidateGardenletConfiguration(cfg, nil, false)
+
+				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("exposureClassHandlers[0].name"),
+				}))))
+			})
+
+			Context("serviceExternalIP", func() {
+				It("should allow to use an external service ip as loadbalancer ip is valid", func() {
+					cfg.ExposureClassHandlers[0].SNI.Ingress.ServiceExternalIP = pointer.StringPtr("1.1.1.1")
+
+					errorList := ValidateGardenletConfiguration(cfg, nil, false)
+
+					Expect(errorList).To(BeEmpty())
+				})
+
+				It("should allow to use an external service ip as APIServerSNI feature gate is explicitly activated", func() {
+					cfg.ExposureClassHandlers[0].SNI.Ingress.ServiceExternalIP = pointer.StringPtr("1.1.1.1")
+					cfg.FeatureGates["APIServerSNI"] = true
+
+					errorList := ValidateGardenletConfiguration(cfg, nil, false)
+
+					Expect(errorList).To(BeEmpty())
+				})
+
+				It("should forbid to use an external service ip when APIServerSNI feature gate is disabled", func() {
+					cfg.ExposureClassHandlers[0].SNI.Ingress.ServiceExternalIP = pointer.StringPtr("1.1.1.1")
+					cfg.FeatureGates["APIServerSNI"] = false
+
+					errorList := ValidateGardenletConfiguration(cfg, nil, false)
+					Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":  Equal(field.ErrorTypeForbidden),
+						"Field": Equal("exposureClassHandlers[0].sni.ingress.serviceExternalIP"),
+					}))))
+				})
+
+				It("should forbid to use an empty external service ip", func() {
+					cfg.ExposureClassHandlers[0].SNI.Ingress.ServiceExternalIP = pointer.StringPtr("")
+
+					errorList := ValidateGardenletConfiguration(cfg, nil, false)
+					Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":  Equal(field.ErrorTypeInvalid),
+						"Field": Equal("exposureClassHandlers[0].sni.ingress.serviceExternalIP"),
+					}))))
+				})
+
+				It("should forbid to use an invalid external service ip", func() {
+					cfg.ExposureClassHandlers[0].SNI.Ingress.ServiceExternalIP = pointer.StringPtr("a.b.c.d")
+
+					errorList := ValidateGardenletConfiguration(cfg, nil, false)
+					Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":  Equal(field.ErrorTypeInvalid),
+						"Field": Equal("exposureClassHandlers[0].sni.ingress.serviceExternalIP"),
+					}))))
+				})
 			})
 		})
 	})

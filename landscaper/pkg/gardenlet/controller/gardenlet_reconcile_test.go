@@ -121,8 +121,8 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 			// the repository and tag are required values in the gardenlet chart
 			// use default values from the gardenlet helm chart
 			Image: &seedmanagement.Image{
-				Repository: pointer.StringPtr("eu.gcr.io/gardener-project/gardener/gardenlet"),
-				Tag:        pointer.StringPtr("latest"),
+				Repository: pointer.String("eu.gcr.io/gardener-project/gardener/gardenlet"),
+				Tag:        pointer.String("latest"),
 			},
 		}
 
@@ -213,7 +213,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 			codecs := serializer.NewCodecFactory(gardenletChartScheme)
 			gardenletChartUniversalDecoder = codecs.UniversalDecoder()
 
-			fakeGardenletChartClient = fake.NewFakeClientWithScheme(gardenletChartScheme)
+			fakeGardenletChartClient = fake.NewClientBuilder().WithScheme(gardenletChartScheme).Build()
 
 			gardenletMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1.SchemeGroupVersion, appsv1.SchemeGroupVersion})
 			gardenletMapper.Add(appsv1.SchemeGroupVersion.WithKind("Deployment"), meta.RESTScopeNamespace)
@@ -268,7 +268,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 					"kubeconfig": kubeconfigContentRuntimeCluster,
 				}
 				expectedSecret.Type = corev1.SecretTypeOpaque
-				mockGardenClient.EXPECT().Update(ctx, &expectedSecret).Return(nil)
+				mockGardenClient.EXPECT().Patch(ctx, &expectedSecret, gomock.Any()).Return(nil)
 
 				// deployBackupSecret
 				rawBackupCredentials, err := json.Marshal(backupCredentials)
@@ -410,7 +410,8 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 					ctx,
 					fakeGardenletChartClient,
 					expectedLabels,
-					"gardenlet")
+					"gardenlet",
+					nil)
 
 				appliercommon.ValidateGardenletChartServiceAccount(ctx,
 					fakeGardenletChartClient,
@@ -424,7 +425,8 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 					false,
 					landscaper.gardenletConfiguration.GardenClientConnection.BootstrapKubeconfig,
 					landscaper.gardenletConfiguration.GardenClientConnection.KubeconfigSecret,
-					landscaper.gardenletConfiguration.SeedConfig)
+					landscaper.gardenletConfiguration.SeedConfig,
+					nil)
 
 				appliercommon.VerifyGardenletComponentConfigConfigMap(ctx,
 					fakeGardenletChartClient,
@@ -455,7 +457,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 			},
 			Entry("should successfully reconcile with bootstrap kubeconfig", true, nil, nil),
 			Entry("should successfully reconcile with bootstrap kubeconfig", false, nil, nil),
-			Entry("should successfully reconcile with image vectors", false, pointer.StringPtr("abc"), pointer.StringPtr("dxy")),
+			Entry("should successfully reconcile with image vectors", false, pointer.String("abc"), pointer.String("dxy")),
 		)
 
 	})
@@ -652,7 +654,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 			expectedSecret.Labels = map[string]string{
 				"provider": providerName,
 			}
-			mockGardenClient.EXPECT().Update(ctx, &expectedSecret).Return(nil)
+			mockGardenClient.EXPECT().Patch(ctx, &expectedSecret, gomock.Any()).Return(nil)
 
 			err := landscaper.deployBackupSecret(ctx, providerName, credentials, backupSecretRef)
 			Expect(err).ToNot(HaveOccurred())
@@ -661,7 +663,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 		It("should return an error when failing to deploy the secret", func() {
 			mockGardenInterface.EXPECT().Client().Return(mockGardenClient)
 			mockGardenClient.EXPECT().Get(ctx, kutil.Key(backupSecret.Namespace, backupSecret.Name), backupSecret).Return(nil)
-			mockGardenClient.EXPECT().Update(ctx, gomock.Any()).Return(fmt.Errorf("some error"))
+			mockGardenClient.EXPECT().Patch(ctx, gomock.Any(), gomock.Any()).Return(fmt.Errorf("some error"))
 
 			err := landscaper.deployBackupSecret(ctx, providerName, credentials, backupSecretRef)
 			Expect(err).To(HaveOccurred())
@@ -692,7 +694,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 
 			expectedSecret := *seedSecret
 			expectedSecret.Data = map[string][]byte{
-				"kubeconfig": []byte(kubeconfigContent),
+				"kubeconfig": kubeconfigContent,
 			}
 			expectedSecret.Type = corev1.SecretTypeOpaque
 			mockGardenClient.EXPECT().Create(ctx, &expectedSecret).Return(nil)
@@ -707,10 +709,10 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 
 			expectedSecret := *seedSecret
 			expectedSecret.Data = map[string][]byte{
-				"kubeconfig": []byte(kubeconfigContent),
+				"kubeconfig": kubeconfigContent,
 			}
 			expectedSecret.Type = corev1.SecretTypeOpaque
-			mockGardenClient.EXPECT().Update(ctx, &expectedSecret).Return(nil)
+			mockGardenClient.EXPECT().Patch(ctx, &expectedSecret, gomock.Any()).Return(nil)
 
 			err := landscaper.deploySeedSecret(ctx, kubeconfigContent, secretRef)
 			Expect(err).ToNot(HaveOccurred())
@@ -719,7 +721,7 @@ var _ = Describe("Gardenlet Landscaper reconciliation testing", func() {
 		It("should return an error when failing to deploy the secret", func() {
 			mockGardenInterface.EXPECT().Client().Return(mockGardenClient)
 			mockGardenClient.EXPECT().Get(ctx, kutil.Key(seedSecret.Namespace, seedSecret.Name), seedSecret).Return(nil)
-			mockGardenClient.EXPECT().Update(ctx, gomock.Any()).Return(fmt.Errorf("some error"))
+			mockGardenClient.EXPECT().Patch(ctx, gomock.Any(), gomock.Any()).Return(fmt.Errorf("some error"))
 
 			err := landscaper.deploySeedSecret(ctx, kubeconfigContent, secretRef)
 			Expect(err).To(HaveOccurred())

@@ -23,7 +23,6 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
-	gardencore "github.com/gardener/gardener/pkg/client/core/clientset/versioned"
 	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions/core/v1beta1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap"
@@ -37,14 +36,13 @@ import (
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/flow"
-	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -178,8 +176,7 @@ func careSetupFailure(ctx context.Context, gardenClient kubernetes.Interface, sh
 		return nil
 	}
 
-	_, err := updateShootStatus(ctx, gardenClient.GardenCore(), shoot, updatedConditions, updatedConstraints)
-	return err
+	return patchShootStatus(ctx, gardenClient.Client(), shoot, updatedConditions, updatedConstraints)
 }
 
 func (s *careReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -201,7 +198,7 @@ func (s *careReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 	}
 
 	// if shoot is no longer managed by this gardenlet (e.g., due to migration to another seed) then don't requeue
-	if !controllerutils.ShootIsManagedByThisGardenlet(shootObj, s.config, s.k8sGardenCoreInformers.Seeds().Lister()) {
+	if !controllerutils.ShootIsManagedByThisGardenlet(shootObj, s.config) {
 		return reconcile.Result{}, nil
 	}
 
@@ -271,7 +268,7 @@ func (s *careReconciler) care(ctx context.Context, shootObj *gardencorev1beta1.S
 
 	// Only read Garden secrets once because we don't rely on up-to-date secrets for health checks.
 	if s.gardenSecrets == nil {
-		secrets, err := garden.ReadGardenSecrets(careCtx, gardenClient.Cache(), s.k8sGardenCoreInformers.Seeds().Lister(), gardenerutils.ComputeGardenNamespace(*shoot.Spec.SeedName))
+		secrets, err := garden.ReadGardenSecrets(careCtx, gardenClient.Client(), s.k8sGardenCoreInformers.Seeds().Lister(), gutil.ComputeGardenNamespace(*shoot.Spec.SeedName))
 		if err != nil {
 			return fmt.Errorf("error reading Garden secrets: %w", err)
 		}
@@ -361,22 +358,20 @@ func (s *careReconciler) care(ctx context.Context, shootObj *gardencorev1beta1.S
 	// Update Shoot status if necessary
 	if gardencorev1beta1helper.ConditionsNeedUpdate(conditions, updatedConditions) ||
 		gardencorev1beta1helper.ConditionsNeedUpdate(constraints, updatedConstraints) {
-		updatedShoot, err := updateShootStatus(ctx, gardenClient.GardenCore(), shoot, updatedConditions, updatedConstraints)
-		if err != nil {
+		if err := patchShootStatus(ctx, gardenClient.Client(), shoot, updatedConditions, updatedConstraints); err != nil {
 			operation.Logger.Errorf("Could not update Shoot status: %+v", err)
 			return nil // We do not want to run in the exponential backoff for the condition checks.
 		}
-		shoot = updatedShoot
 	}
 
 	// Mark Shoot as healthy/unhealthy
-	oldObj := shoot.DeepCopy()
+	metaPatch := client.MergeFrom(shoot.DeepCopy())
 	kutil.SetMetaDataLabel(&shoot.ObjectMeta, v1beta1constants.ShootStatus, string(shootpkg.ComputeStatus(
 		shoot.Status.LastOperation,
 		shoot.Status.LastErrors,
 		updatedConditions...,
 	)))
-	if err := gardenClient.Client().Patch(ctx, shoot, client.MergeFrom(oldObj)); err != nil {
+	if err := gardenClient.Client().Patch(ctx, shoot, metaPatch); err != nil {
 		operation.Logger.Errorf("Could not update Shoot health label: %+v", err)
 		return nil // We do not want to run in the exponential backoff for the condition checks.
 	}
@@ -384,14 +379,11 @@ func (s *careReconciler) care(ctx context.Context, shootObj *gardencorev1beta1.S
 	return nil
 }
 
-func updateShootStatus(ctx context.Context, g gardencore.Interface, shoot *gardencorev1beta1.Shoot, conditions, constraints []gardencorev1beta1.Condition) (*gardencorev1beta1.Shoot, error) {
-	return kutil.TryUpdateShootStatus(ctx, g, retry.DefaultBackoff, shoot.ObjectMeta,
-		func(shoot *gardencorev1beta1.Shoot) (*gardencorev1beta1.Shoot, error) {
-			shoot.Status.Conditions = conditions
-			shoot.Status.Constraints = constraints
-			return shoot, nil
-		},
-	)
+func patchShootStatus(ctx context.Context, c client.StatusClient, shoot *gardencorev1beta1.Shoot, conditions, constraints []gardencorev1beta1.Condition) error {
+	patch := client.StrategicMergeFrom(shoot.DeepCopy())
+	shoot.Status.Conditions = conditions
+	shoot.Status.Constraints = constraints
+	return c.Status().Patch(ctx, shoot, patch)
 }
 
 func retrieveSeedConditions(ctx context.Context, operation *operation.Operation) ([]gardencorev1beta1.Condition, error) {

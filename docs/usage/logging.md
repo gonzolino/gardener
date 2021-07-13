@@ -11,9 +11,11 @@ Kubernetes uses the underlying container runtime logging, which does not persist
 * One Grafana Deployment in `garden` namespace and two Deployments per shoot namespace (one exposed to the end users and one for the operators). Grafana is the UI component used in the logging stack.
 
 ### How to access the logs
-The first step is to authenticate in front of the Grafana ingress. The secret with the credentials can be found in garden-<project> namespace under <shoot-name>.monitoring.
-Logs are accessible via Grafana UI. Its URL can be found in the `Logging and Monitoring` section of a cluster in the Gardener Dashboard. There are two methods to explore logs: 
-* The first one is to log in in the admin panel located in bottom left corner. The default username and password are `admin`, `admin`. After successful log in, you will be asked to change the default password. **These credentials are shared by all operators. If you change the password this will affect their access.** After that, a new `Explore` menu will be available at the left side of the screen. It is used for creating log queries using the predefined filters in Loki. For example: 
+The first step is to authenticate in front of the Grafana ingress. The secret with the credentials can be found in `garden-<project>` namespace under `<shoot-name>.monitoring`.
+Logs are accessible via Grafana UI. Its URL can be found in the `Logging and Monitoring` section of a cluster in the Gardener Dashboard.
+
+There are two methods to explore logs:
+* The first option is to use the `Explore` view (available at the left side of the screen). It is used for creating log queries using the predefined filters in Loki. For example: 
 `{pod_name='prometheus-0'}`
 or with regex:
 `{pod_name=~'prometheus.+'}`
@@ -34,13 +36,10 @@ or with regex:
     * Kubernetes Pods
 
 ### Expose logs for component to User Grafana
-Exposing logs for a new component to the User's Grafana happens with adding a new component section into: charts/seed-monitoring/charts/grafana/values.yaml
+Exposing logs for a new component to the User's Grafana happens with adding a new `extensions.observedPods` section into: charts/seed-monitoring/charts/grafana/values.yaml
 
-* dashboardName: The name of the dashboard. Use prefix `Logging` to make it recognizable for the users.
-* jobName: The job name of the component defined in the prometheus.
-* podPrefix: The prefix of the pod e.g. `kube-apiserver`
-* fileName: File which will be created in the container's disk with the dashboard configuration.
-
+* PodPrefix: The prefix of the pod e.g. `kube-apiserver`
+* IsExposedToUser: It is true when the component should be exposed to the end user
 
 ### Configuration
 #### Fluent-bit

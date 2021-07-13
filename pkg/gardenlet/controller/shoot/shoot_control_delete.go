@@ -170,7 +170,7 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 		})
 		ensureShootClusterIdentity = g.Add(flow.Task{
 			Name: "Ensuring Shoot cluster identity",
-			Fn:   flow.TaskFn(botanist.EnsureClusterIdentity).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Fn:   flow.TaskFn(botanist.EnsureShootClusterIdentity).RetryUntilTimeout(defaultInterval, defaultTimeout),
 		})
 
 		// We need to ensure that the deployed cloud provider secret is up-to-date. In case it has changed then we
@@ -215,8 +215,13 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 		})
 		deployInternalDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Deploying internal domain DNS record",
-			Fn:           flow.TaskFn(botanist.DeployInternalDNS).DoIf(cleanupShootResources),
+			Fn:           flow.TaskFn(botanist.DeployInternalDNSResources).DoIf(cleanupShootResources),
 			Dependencies: flow.NewTaskIDs(deployReferencedResources, waitUntilKubeAPIServerServiceIsReady),
+		})
+		deployAdditionalDNSProviders = g.Add(flow.Task{
+			Name:         "Deploying additional DNS providers",
+			Fn:           flow.TaskFn(botanist.DeployAdditionalDNSProviders).RetryUntilTimeout(defaultInterval, defaultTimeout).DoIf(nonTerminatingNamespace),
+			Dependencies: flow.NewTaskIDs(deployReferencedResources),
 		})
 		_ = g.Add(flow.Task{
 			Name:         "Deploying network policies",
@@ -356,6 +361,7 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 			deployControlPlane,
 			deployKubeControllerManager,
 			waitForControllersToBeActive,
+			deployAdditionalDNSProviders,
 		)
 
 		cleanKubernetesResources = g.Add(flow.Task{
@@ -477,6 +483,16 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 			Fn:           flow.TaskFn(botanist.DeleteKubeAPIServer).RetryUntilTimeout(defaultInterval, defaultTimeout),
 			Dependencies: flow.NewTaskIDs(syncPointCleaned, waitUntilControlPlaneDeleted),
 		})
+		destroyKubeAPIServerSNI = g.Add(flow.Task{
+			Name:         "Destroying Kubernetes API server service SNI",
+			Fn:           flow.TaskFn(botanist.Shoot.Components.ControlPlane.KubeAPIServerSNI.Destroy).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Dependencies: flow.NewTaskIDs(deleteKubeAPIServer),
+		})
+		_ = g.Add(flow.Task{
+			Name:         "Destroying Kubernetes API server service",
+			Fn:           flow.TaskFn(botanist.Shoot.Components.ControlPlane.KubeAPIServerService.Destroy).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Dependencies: flow.NewTaskIDs(deleteKubeAPIServer, destroyKubeAPIServerSNI),
+		})
 
 		destroyControlPlaneExposure = g.Add(flow.Task{
 			Name:         "Destroying shoot control plane exposure",
@@ -489,9 +505,9 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 			Dependencies: flow.NewTaskIDs(destroyControlPlaneExposure),
 		})
 
-		destroyNginxIngressDNSRecord = g.Add(flow.Task{
+		destroyIngressDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Destroying nginx ingress DNS record",
-			Fn:           flow.TaskFn(botanist.DestroyIngressDNSRecord),
+			Fn:           flow.TaskFn(botanist.DestroyIngressDNSResources),
 			Dependencies: flow.NewTaskIDs(syncPointCleaned),
 		})
 		destroyInfrastructure = g.Add(flow.Task{
@@ -506,7 +522,7 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 		})
 		destroyExternalDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Destroying external domain DNS record",
-			Fn:           flow.TaskFn(botanist.DestroyExternalDNS),
+			Fn:           flow.TaskFn(botanist.DestroyExternalDNSResources),
 			Dependencies: flow.NewTaskIDs(syncPointCleaned, deleteKubeAPIServer),
 		})
 		deleteGrafana = g.Add(flow.Task{
@@ -521,14 +537,14 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 			deleteKubeAPIServer,
 			waitUntilControlPlaneDeleted,
 			waitUntilControlPlaneExposureDeleted,
-			destroyNginxIngressDNSRecord,
+			destroyIngressDomainDNSRecord,
 			destroyExternalDomainDNSRecord,
 			waitUntilInfrastructureDeleted,
 		)
 
 		destroyInternalDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Destroying internal domain DNS record",
-			Fn:           flow.TaskFn(botanist.DestroyInternalDNS),
+			Fn:           flow.TaskFn(botanist.DestroyInternalDNSResources),
 			Dependencies: flow.NewTaskIDs(syncPoint),
 		})
 		deleteDNSProviders = g.Add(flow.Task{
@@ -549,6 +565,11 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 		_ = g.Add(flow.Task{
 			Name:         "Waiting until shoot namespace in Seed has been deleted",
 			Fn:           botanist.WaitUntilSeedNamespaceDeleted,
+			Dependencies: flow.NewTaskIDs(deleteNamespace),
+		})
+		_ = g.Add(flow.Task{
+			Name:         "Deleting Shoot State",
+			Fn:           botanist.DeleteShootState,
 			Dependencies: flow.NewTaskIDs(deleteNamespace),
 		})
 		f = g.Compile()
@@ -575,18 +596,18 @@ func (c *Controller) runDeleteShootFlow(ctx context.Context, o *operation.Operat
 }
 
 func (c *Controller) removeFinalizerFrom(ctx context.Context, gardenClient kubernetes.Interface, shoot *gardencorev1beta1.Shoot) error {
-	newShoot, err := c.updateShootStatusOperationSuccess(ctx, gardenClient.GardenCore(), nil, shoot, "", nil, gardencorev1beta1.LastOperationTypeDelete)
-	if err != nil {
+	if err := c.patchShootStatusOperationSuccess(ctx, gardenClient.Client(), nil, shoot, "", nil, gardencorev1beta1.LastOperationTypeDelete); err != nil {
 		return err
 	}
 
-	if err := controllerutils.PatchRemoveFinalizers(ctx, gardenClient.Client(), newShoot, gardencorev1beta1.GardenerName); err != nil {
+	if err := controllerutils.PatchRemoveFinalizers(ctx, gardenClient.Client(), shoot, gardencorev1beta1.GardenerName); err != nil {
 		return fmt.Errorf("could not remove finalizer from Shoot: %s", err.Error())
 	}
 
 	// Wait until the above modifications are reflected in the cache to prevent unwanted reconcile
 	// operations (sometimes the cache is not synced fast enough).
 	return retryutils.UntilTimeout(ctx, time.Second, 30*time.Second, func(context.Context) (done bool, err error) {
+		// TODO(timebertt): switch to c-r cache here, once shoot controller uses c-r informers
 		shoot, err := c.shootLister.Shoots(shoot.Namespace).Get(shoot.Name)
 		if apierrors.IsNotFound(err) {
 			return retryutils.Ok()

@@ -1,12 +1,12 @@
 labels:
   app: istio-ingressgateway
-  istio: ingressgateway
 annotations: {}
 image: to-be-injected-by-imagevector
 trustDomain: cluster.local
 istiodNamespace: istio-system
 deployNamespace: false
 serviceType: LoadBalancer
+# loadBalancerIP: 1.2.3.4
 ports: []
 # ports:
 # - name: tls

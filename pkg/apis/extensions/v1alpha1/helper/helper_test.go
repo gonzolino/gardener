@@ -21,6 +21,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+	"k8s.io/utils/pointer"
 )
 
 var _ = Describe("helper", func() {
@@ -38,5 +39,23 @@ var _ = Describe("helper", func() {
 			Minimum: 0,
 			Maximum: 1,
 		}}, true),
+	)
+
+	DescribeTable("#GetDNSRecordType",
+		func(address string, expected extensionsv1alpha1.DNSRecordType) {
+			Expect(GetDNSRecordType(address)).To(Equal(expected))
+		},
+
+		Entry("valid IPv4 address", "1.2.3.4", extensionsv1alpha1.DNSRecordTypeA),
+		Entry("anything else", "foo", extensionsv1alpha1.DNSRecordTypeCNAME),
+	)
+
+	DescribeTable("#GetDNSRecordTTL",
+		func(ttl *int64, expected int64) {
+			Expect(GetDNSRecordTTL(ttl)).To(Equal(expected))
+		},
+
+		Entry("nil value", nil, int64(120)),
+		Entry("non-nil value", pointer.Int64(300), int64(300)),
 	)
 })

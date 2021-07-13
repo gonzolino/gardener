@@ -48,6 +48,8 @@ type ControllerManagerConfiguration struct {
 
 // ControllerManagerControllerConfiguration defines the configuration of the controllers.
 type ControllerManagerControllerConfiguration struct {
+	// Bastion defines the configuration of the Bastion controller.
+	Bastion *BastionControllerConfiguration
 	// CloudProfile defines the configuration of the CloudProfile controller.
 	CloudProfile *CloudProfileControllerConfiguration
 	// ControllerDeployment defines the configuration of the ControllerDeployment controller.
@@ -56,6 +58,8 @@ type ControllerManagerControllerConfiguration struct {
 	ControllerRegistration *ControllerRegistrationControllerConfiguration
 	// Event defines the configuration of the Event controller.  If unset, the event controller will be disabled.
 	Event *EventControllerConfiguration
+	// ExposureClass defines the configuration of the ExposureClass controller.
+	ExposureClass *ExposureClassControllerConfiguration
 	// Plant defines the configuration of the Plant controller.
 	Plant *PlantControllerConfiguration
 	// Project defines the configuration of the Project controller.
@@ -78,6 +82,17 @@ type ControllerManagerControllerConfiguration struct {
 	ShootRetry *ShootRetryControllerConfiguration
 	// ManagedSeedSet defines the configuration of the ManagedSeedSet controller.
 	ManagedSeedSet *ManagedSeedSetControllerConfiguration
+}
+
+// BastionControllerConfiguration defines the configuration of the Bastion
+// controller.
+type BastionControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on
+	// events.
+	ConcurrentSyncs int
+	// MaxLifetime is the maximum time a Bastion resource can exist before it is
+	// forcefully deleted (defaults to '24h').
+	MaxLifetime *metav1.Duration
 }
 
 // CloudProfileControllerConfiguration defines the configuration of the CloudProfile
@@ -121,6 +136,14 @@ type EventControllerConfiguration struct {
 	ConcurrentSyncs int
 	// TTLNonShootEvents is the time-to-live for all non-shoot related events (defaults to `1h`).
 	TTLNonShootEvents *metav1.Duration
+}
+
+// ExposureClassControllerConfiguration defines the configuration of the
+// ExposureClass controller.
+type ExposureClassControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on
+	// events.
+	ConcurrentSyncs int
 }
 
 // ProjectControllerConfiguration defines the configuration of the

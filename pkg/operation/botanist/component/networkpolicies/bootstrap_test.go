@@ -88,8 +88,8 @@ var _ = Describe("Bootstrap", func() {
 					SecretRefs: []corev1.LocalObjectReference{
 						{Name: managedResourceSecretName},
 					},
-					Class:       pointer.StringPtr("seed"),
-					KeepObjects: pointer.BoolPtr(false),
+					Class:       pointer.String("seed"),
+					KeepObjects: pointer.Bool(false),
 				},
 			}
 		})
@@ -119,7 +119,7 @@ var _ = Describe("Bootstrap", func() {
 			Expect(registry.Add(constructNPAllowToAggregatePrometheus(namespace))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToAllShootAPIServers(namespace, values.SNIEnabled))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToBlockedCIDRs(namespace, values.BlockedAddresses))).To(Succeed())
-			Expect(registry.Add(constructNPAllowToDNS(namespace, values.NodeLocalDNSEnabled, values.DNSServerAddress, values.NodeLocalIPVSAddress))).To(Succeed())
+			Expect(registry.Add(constructNPAllowToDNS(namespace, values.DNSServerAddress, values.NodeLocalIPVSAddress))).To(Succeed())
 			Expect(registry.Add(constructNPDenyAll(namespace, values.DenyAllTraffic))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToPrivateNetworks(namespace, values.PrivateNetworkPeers))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToPublicNetworks(namespace, values.BlockedAddresses))).To(Succeed())
@@ -139,7 +139,7 @@ var _ = Describe("Bootstrap", func() {
 			Expect(deployer.Deploy(ctx)).To(Succeed())
 		})
 
-		It("should successfully deploy all the resources (w/ SNI enabled, w/ blocked addresses, w/ node-local DNS, w/ deny all, w/ private network peers, w/ shoot network peers)", func() {
+		It("should successfully deploy all the resources (w/ SNI enabled, w/ blocked addresses, w/ deny all, w/ private network peers, w/ shoot network peers)", func() {
 			values = GlobalValues{
 				SNIEnabled:       true,
 				BlockedAddresses: []string{"foo", "bar"},
@@ -148,9 +148,8 @@ var _ = Describe("Bootstrap", func() {
 					{IPBlock: &networkingv1.IPBlock{CIDR: "6.7.8.9/10"}},
 				},
 				DenyAllTraffic:       true,
-				NodeLocalDNSEnabled:  true,
-				NodeLocalIPVSAddress: pointer.StringPtr("node-local-ipvs-address"),
-				DNSServerAddress:     pointer.StringPtr("dns-server-address"),
+				NodeLocalIPVSAddress: pointer.String("node-local-ipvs-address"),
+				DNSServerAddress:     pointer.String("dns-server-address"),
 			}
 			deployer = NewBootstrapper(c, namespace, values)
 
@@ -158,7 +157,7 @@ var _ = Describe("Bootstrap", func() {
 			Expect(registry.Add(constructNPAllowToAggregatePrometheus(namespace))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToAllShootAPIServers(namespace, values.SNIEnabled))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToBlockedCIDRs(namespace, values.BlockedAddresses))).To(Succeed())
-			Expect(registry.Add(constructNPAllowToDNS(namespace, values.NodeLocalDNSEnabled, values.DNSServerAddress, values.NodeLocalIPVSAddress))).To(Succeed())
+			Expect(registry.Add(constructNPAllowToDNS(namespace, values.DNSServerAddress, values.NodeLocalIPVSAddress))).To(Succeed())
 			Expect(registry.Add(constructNPDenyAll(namespace, values.DenyAllTraffic))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToPrivateNetworks(namespace, values.PrivateNetworkPeers))).To(Succeed())
 			Expect(registry.Add(constructNPAllowToPublicNetworks(namespace, values.BlockedAddresses))).To(Succeed())

@@ -28,6 +28,8 @@ const (
 	VertexTypeCertificateSigningRequest
 	// VertexTypeCloudProfile is a constant for a 'CloudProfile' vertex.
 	VertexTypeCloudProfile
+	// VertexTypeClusterRoleBinding is a constant for a 'ClusterRoleBinding' vertex.
+	VertexTypeClusterRoleBinding
 	// VertexTypeConfigMap is a constant for a 'ConfigMap' vertex.
 	VertexTypeConfigMap
 	// VertexTypeControllerDeployment is a constant for a 'ControllerDeployment' vertex.
@@ -36,6 +38,8 @@ const (
 	VertexTypeControllerInstallation
 	// VertexTypeControllerRegistration is a constant for a 'ControllerRegistration' vertex.
 	VertexTypeControllerRegistration
+	// VertexTypeExposureClass is a constant for a 'ExposureClass' vertex.
+	VertexTypeExposureClass
 	// VertexTypeLease is a constant for a 'Lease' vertex.
 	VertexTypeLease
 	// VertexTypeManagedSeed is a constant for a 'ManagedSeed' vertex.
@@ -50,6 +54,8 @@ const (
 	VertexTypeSecretBinding
 	// VertexTypeSeed is a constant for a 'Seed' vertex.
 	VertexTypeSeed
+	// VertexTypeServiceAccount is a constant for a 'ServiceAccount' vertex.
+	VertexTypeServiceAccount
 	// VertexTypeShoot is a constant for a 'Shoot' vertex.
 	VertexTypeShoot
 	// VertexTypeShootState is a constant for a 'ShootState' vertex.
@@ -62,9 +68,12 @@ var vertexTypes = map[VertexType]string{
 	VertexTypeBastion:                   "Bastion",
 	VertexTypeCertificateSigningRequest: "CertificateSigningRequest",
 	VertexTypeCloudProfile:              "CloudProfile",
+	VertexTypeClusterRoleBinding:        "ClusterRoleBinding",
 	VertexTypeConfigMap:                 "ConfigMap",
+	VertexTypeControllerDeployment:      "ControllerDeployment",
 	VertexTypeControllerInstallation:    "ControllerInstallation",
 	VertexTypeControllerRegistration:    "ControllerRegistration",
+	VertexTypeExposureClass:             "ExposureClass",
 	VertexTypeLease:                     "Lease",
 	VertexTypeManagedSeed:               "ManagedSeed",
 	VertexTypeNamespace:                 "Namespace",
@@ -72,6 +81,7 @@ var vertexTypes = map[VertexType]string{
 	VertexTypeSecret:                    "Secret",
 	VertexTypeSecretBinding:             "SecretBinding",
 	VertexTypeSeed:                      "Seed",
+	VertexTypeServiceAccount:            "ServiceAccount",
 	VertexTypeShoot:                     "Shoot",
 	VertexTypeShootState:                "ShootState",
 }

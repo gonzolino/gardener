@@ -33,6 +33,7 @@ import (
 
 	"github.com/Masterminds/semver"
 	resourcesv1alpha1 "github.com/gardener/gardener-resource-manager/pkg/apis/resources/v1alpha1"
+	hvpav1alpha1 "github.com/gardener/hvpa-controller/api/v1alpha1"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -40,9 +41,12 @@ import (
 	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	autoscalingv2beta1 "k8s.io/api/autoscaling/v2beta1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 	"k8s.io/utils/pointer"
@@ -55,22 +59,25 @@ var _ = Describe("KubeControllerManager", func() {
 		testLogger            = logrus.NewEntry(logger.NewNopLogger())
 		ctrl                  *gomock.Controller
 		c                     *mockclient.MockClient
-		kubeControllerManager KubeControllerManager
+		kubeControllerManager Interface
 
-		_, podCIDR, _     = net.ParseCIDR("100.96.0.0/11")
-		_, serviceCIDR, _ = net.ParseCIDR("100.64.0.0/13")
-		fakeErr           = fmt.Errorf("fake error")
-		namespace         = "shoot--foo--bar"
-		version           = "1.17.2"
-		semverVersion, _  = semver.NewVersion(version)
-		image             = "k8s.gcr.io/kube-controller-manager:v1.17.2"
+		_, podCIDR, _                 = net.ParseCIDR("100.96.0.0/11")
+		_, serviceCIDR, _             = net.ParseCIDR("100.64.0.0/13")
+		fakeErr                       = fmt.Errorf("fake error")
+		namespace                     = "shoot--foo--bar"
+		version                       = "1.17.2"
+		semverVersion, _              = semver.NewVersion(version)
+		image                         = "k8s.gcr.io/kube-controller-manager:v1.17.2"
+		hvpaConfigDisabled            = &HVPAConfig{Enabled: false}
+		hvpaConfigEnabled             = &HVPAConfig{Enabled: true}
+		hvpaConfigEnabledScaleDownOff = &HVPAConfig{Enabled: true, ScaleDownUpdateMode: pointer.String(hvpav1alpha1.UpdateModeOff)}
 
 		hpaConfig = gardencorev1beta1.HorizontalPodAutoscalerConfig{
 			CPUInitializationPeriod: &metav1.Duration{Duration: 5 * time.Minute},
 			DownscaleStabilization:  &metav1.Duration{Duration: 5 * time.Minute},
 			InitialReadinessDelay:   &metav1.Duration{Duration: 30 * time.Second},
 			SyncPeriod:              &metav1.Duration{Duration: 30 * time.Second},
-			Tolerance:               pointer.Float64Ptr(0.1),
+			Tolerance:               pointer.Float64(0.1),
 		}
 
 		nodeCIDRMask           int32 = 24
@@ -90,8 +97,8 @@ var _ = Describe("KubeControllerManager", func() {
 		secretChecksumCA                = "1234"
 		secretChecksumServiceAccountKey = "1234"
 
-		// vpa
 		vpaName             = "kube-controller-manager-vpa"
+		hvpaName            = "kube-controller-manager"
 		managedResourceName = "shoot-core-kube-controller-manager"
 	)
 
@@ -116,6 +123,7 @@ var _ = Describe("KubeControllerManager", func() {
 					&kcmConfig,
 					podCIDR,
 					serviceCIDR,
+					hvpaConfigDisabled,
 				)
 			})
 
@@ -159,7 +167,7 @@ var _ = Describe("KubeControllerManager", func() {
 				It("should fail when the service cannot be created", func() {
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Return(fakeErr),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).Return(fakeErr),
 					)
 
 					Expect(kubeControllerManager.Deploy(ctx)).To(MatchError(fakeErr))
@@ -168,9 +176,21 @@ var _ = Describe("KubeControllerManager", func() {
 				It("should fail because the deployment cannot be created", func() {
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Return(fakeErr),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).Return(fakeErr),
+					)
+
+					Expect(kubeControllerManager.Deploy(ctx)).To(MatchError(fakeErr))
+				})
+
+				It("should fail because the hvpa cannot be deleted", func() {
+					gomock.InOrder(
+						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
+						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
+						c.EXPECT().Delete(ctx, &hvpav1alpha1.Hvpa{ObjectMeta: metav1.ObjectMeta{Name: hvpaName, Namespace: namespace}}).Return(fakeErr),
 					)
 
 					Expect(kubeControllerManager.Deploy(ctx)).To(MatchError(fakeErr))
@@ -179,11 +199,12 @@ var _ = Describe("KubeControllerManager", func() {
 				It("should fail because the vpa cannot be created", func() {
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
+						c.EXPECT().Delete(ctx, &hvpav1alpha1.Hvpa{ObjectMeta: metav1.ObjectMeta{Name: hvpaName, Namespace: namespace}}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Return(fakeErr),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).Return(fakeErr),
 					)
 
 					Expect(kubeControllerManager.Deploy(ctx)).To(MatchError(fakeErr))
@@ -192,11 +213,12 @@ var _ = Describe("KubeControllerManager", func() {
 				It("should fail because the managed resource cannot be deleted", func() {
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
+						c.EXPECT().Delete(ctx, &hvpav1alpha1.Hvpa{ObjectMeta: metav1.ObjectMeta{Name: hvpaName, Namespace: namespace}}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()),
 						c.EXPECT().Delete(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: managedResourceName, Namespace: namespace}}).Return(fakeErr),
 					)
 
@@ -206,11 +228,12 @@ var _ = Describe("KubeControllerManager", func() {
 				It("should fail because the managed resource secret cannot be deleted", func() {
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
+						c.EXPECT().Delete(ctx, &hvpav1alpha1.Hvpa{ObjectMeta: metav1.ObjectMeta{Name: hvpaName, Namespace: namespace}}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()),
 						c.EXPECT().Delete(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: managedResourceName, Namespace: namespace}}),
 						c.EXPECT().Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: managedresources.SecretName(managedResourceName, true), Namespace: namespace}}).Return(fakeErr),
 					)
@@ -244,6 +267,95 @@ var _ = Describe("KubeControllerManager", func() {
 							}},
 						},
 					},
+				}
+
+				hvpaUpdateModeAuto = hvpav1alpha1.UpdateModeAuto
+				hvpaFor            = func(config *HVPAConfig) *hvpav1alpha1.Hvpa {
+					scaleDownUpdateMode := config.ScaleDownUpdateMode
+					if scaleDownUpdateMode == nil {
+						scaleDownUpdateMode = pointer.String(hvpav1alpha1.UpdateModeAuto)
+					}
+
+					return &hvpav1alpha1.Hvpa{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      hvpaName,
+							Namespace: namespace,
+							Labels: map[string]string{
+								"app":  "kubernetes",
+								"role": "controller-manager",
+							},
+						},
+						Spec: hvpav1alpha1.HvpaSpec{
+							Replicas: pointer.Int32(1),
+							Hpa: hvpav1alpha1.HpaSpec{
+								Deploy: false,
+								Selector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										"app":  "kubernetes",
+										"role": "controller-manager",
+									},
+								},
+								Template: hvpav1alpha1.HpaTemplate{
+									ObjectMeta: metav1.ObjectMeta{
+										Labels: map[string]string{
+											"app":  "kubernetes",
+											"role": "controller-manager",
+										},
+									},
+									Spec: hvpav1alpha1.HpaTemplateSpec{
+										MinReplicas: pointer.Int32(int32(1)),
+										MaxReplicas: int32(1),
+									},
+								},
+							},
+							Vpa: hvpav1alpha1.VpaSpec{
+								Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
+									v1beta1constants.LabelRole: "kube-controller-manager-vpa",
+								}},
+								Deploy: true,
+								ScaleUp: hvpav1alpha1.ScaleType{
+									UpdatePolicy: hvpav1alpha1.UpdatePolicy{
+										UpdateMode: &hvpaUpdateModeAuto,
+									},
+								},
+								ScaleDown: hvpav1alpha1.ScaleType{
+									UpdatePolicy: hvpav1alpha1.UpdatePolicy{
+										UpdateMode: scaleDownUpdateMode,
+									},
+								},
+								Template: hvpav1alpha1.VpaTemplate{
+									ObjectMeta: metav1.ObjectMeta{
+										Labels: map[string]string{
+											v1beta1constants.LabelRole: "kube-controller-manager-vpa",
+										},
+									},
+									Spec: hvpav1alpha1.VpaTemplateSpec{
+										ResourcePolicy: &autoscalingv1beta2.PodResourcePolicy{
+											ContainerPolicies: []autoscalingv1beta2.ContainerResourcePolicy{{
+												ContainerName: "kube-controller-manager",
+												MinAllowed: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("100m"),
+													corev1.ResourceMemory: resource.MustParse("100Mi"),
+												},
+											}},
+										},
+									},
+								},
+							},
+							WeightBasedScalingIntervals: []hvpav1alpha1.WeightBasedScalingInterval{
+								{
+									VpaWeight:         hvpav1alpha1.VpaOnly,
+									StartReplicaCount: 1,
+									LastReplicaCount:  1,
+								},
+							},
+							TargetRef: &autoscalingv2beta1.CrossVersionObjectReference{
+								APIVersion: appsv1.SchemeGroupVersion.String(),
+								Kind:       "Deployment",
+								Name:       "kube-controller-manager",
+							},
+						},
+					}
 				}
 
 				serviceFor = func(version string) *corev1.Service {
@@ -287,7 +399,7 @@ var _ = Describe("KubeControllerManager", func() {
 							},
 						},
 						Spec: appsv1.DeploymentSpec{
-							RevisionHistoryLimit: pointer.Int32Ptr(1),
+							RevisionHistoryLimit: pointer.Int32(1),
 							Replicas:             &replicas,
 							Selector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
@@ -420,18 +532,18 @@ var _ = Describe("KubeControllerManager", func() {
 						DownscaleStabilization:  &metav1.Duration{Duration: 10 * time.Minute},
 						InitialReadinessDelay:   &metav1.Duration{Duration: 20 * time.Second},
 						SyncPeriod:              &metav1.Duration{Duration: 20 * time.Second},
-						Tolerance:               pointer.Float64Ptr(0.3),
+						Tolerance:               pointer.Float64(0.3),
 					},
 					NodeCIDRMaskSize: nil,
 				}
 				configWithFeatureFlags           = &gardencorev1beta1.KubeControllerManagerConfig{KubernetesConfig: gardencorev1beta1.KubernetesConfig{FeatureGates: map[string]bool{"Foo": true, "Bar": false, "Baz": false}}}
-				configWithNodeCIDRMaskSize       = &gardencorev1beta1.KubeControllerManagerConfig{NodeCIDRMaskSize: pointer.Int32Ptr(26)}
+				configWithNodeCIDRMaskSize       = &gardencorev1beta1.KubeControllerManagerConfig{NodeCIDRMaskSize: pointer.Int32(26)}
 				configWithPodEvictionTimeout     = &gardencorev1beta1.KubeControllerManagerConfig{PodEvictionTimeout: &podEvictionTimeout}
 				configWithNodeMonitorGracePeriod = &gardencorev1beta1.KubeControllerManagerConfig{NodeMonitorGracePeriod: &nodeMonitorGracePeriod}
 			)
 
 			DescribeTable("success tests for various kubernetes versions",
-				func(version string, config *gardencorev1beta1.KubeControllerManagerConfig) {
+				func(version string, config *gardencorev1beta1.KubeControllerManagerConfig, hvpaConfig *HVPAConfig) {
 					semverVersion, err := semver.NewVersion(version)
 					Expect(err).NotTo(HaveOccurred())
 
@@ -444,6 +556,7 @@ var _ = Describe("KubeControllerManager", func() {
 						config,
 						podCIDR,
 						serviceCIDR,
+						hvpaConfig,
 					)
 
 					kubeControllerManager.SetSecrets(Secrets{
@@ -455,20 +568,42 @@ var _ = Describe("KubeControllerManager", func() {
 
 					kubeControllerManager.SetReplicaCount(replicas)
 
+					if hvpaConfig.Enabled {
+						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})).Return(apierrors.NewNotFound(schema.GroupResource{}, ""))
+					}
+
 					gomock.InOrder(
 						c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(serviceFor(version)))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(serviceFor(version)))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, v1beta1constants.DeploymentNameKubeControllerManager), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(deploymentFor(version, config)))
-						}),
-						c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(vpa))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(deploymentFor(version, config)))
+							}),
 					)
+
+					if hvpaConfig.Enabled {
+						gomock.InOrder(
+							c.EXPECT().Delete(ctx, &autoscalingv1beta2.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Name: vpaName, Namespace: namespace}}),
+							c.EXPECT().Get(ctx, kutil.Key(namespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
+							c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).
+								Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+									Expect(obj).To(DeepEqual(hvpaFor(hvpaConfig)))
+								}),
+						)
+					} else {
+						gomock.InOrder(
+							c.EXPECT().Delete(ctx, &hvpav1alpha1.Hvpa{ObjectMeta: metav1.ObjectMeta{Name: hvpaName, Namespace: namespace}}),
+							c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
+							c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).
+								Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+									Expect(obj).To(DeepEqual(vpa))
+								}),
+						)
+					}
 
 					gomock.InOrder(
 						c.EXPECT().Delete(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: managedResourceName, Namespace: namespace}}),
@@ -477,40 +612,51 @@ var _ = Describe("KubeControllerManager", func() {
 
 					Expect(kubeControllerManager.Deploy(ctx)).To(Succeed())
 				},
-				Entry("kubernetes 1.19 w/o config", "1.19.0", emptyConfig),
-				Entry("kubernetes 1.19 with non-default autoscaler config", "1.19.0", configWithAutoscalerConfig),
-				Entry("kubernetes 1.19 with feature flags", "1.19.0", configWithFeatureFlags),
-				Entry("kubernetes 1.19 with NodeCIDRMaskSize", "1.19.0", configWithNodeCIDRMaskSize),
-				Entry("kubernetes 1.19 with PodEvictionTimeout", "1.19.0", configWithPodEvictionTimeout),
-				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.19.0", configWithNodeMonitorGracePeriod),
 
-				Entry("kubernetes 1.18 w/o config", "1.18.0", emptyConfig),
-				Entry("kubernetes 1.18 with non-default autoscaler config", "1.18.0", configWithAutoscalerConfig),
-				Entry("kubernetes 1.18 with feature flags", "1.18.0", configWithFeatureFlags),
-				Entry("kubernetes 1.18 with NodeCIDRMaskSize", "1.18.0", configWithNodeCIDRMaskSize),
-				Entry("kubernetes 1.18 with PodEvictionTimeout", "1.18.0", configWithPodEvictionTimeout),
-				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.18.0", configWithNodeMonitorGracePeriod),
+				Entry("kubernetes 1.19 w/o config", "1.19.0", emptyConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.19 with HVPA", "1.19.0", emptyConfig, hvpaConfigEnabled),
+				Entry("kubernetes 1.19 with HVPA and custom scale-down update mode", "1.19.0", emptyConfig, hvpaConfigEnabledScaleDownOff),
+				Entry("kubernetes 1.19 with non-default autoscaler config", "1.19.0", configWithAutoscalerConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.19 with feature flags", "1.19.0", configWithFeatureFlags, hvpaConfigDisabled),
+				Entry("kubernetes 1.19 with NodeCIDRMaskSize", "1.19.0", configWithNodeCIDRMaskSize, hvpaConfigDisabled),
+				Entry("kubernetes 1.19 with PodEvictionTimeout", "1.19.0", configWithPodEvictionTimeout, hvpaConfigDisabled),
+				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.19.0", configWithNodeMonitorGracePeriod, hvpaConfigDisabled),
 
-				Entry("kubernetes 1.17 w/o config", "1.17.0", emptyConfig),
-				Entry("kubernetes 1.17 with non-default autoscaler config", "1.17.0", configWithAutoscalerConfig),
-				Entry("kubernetes 1.17 with feature flags", "1.17.0", configWithFeatureFlags),
-				Entry("kubernetes 1.17 with NodeCIDRMaskSize", "1.17.0", configWithNodeCIDRMaskSize),
-				Entry("kubernetes 1.17 with PodEvictionTimeout", "1.17.0", configWithPodEvictionTimeout),
-				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.17.0", configWithNodeMonitorGracePeriod),
+				Entry("kubernetes 1.18 w/o config", "1.18.0", emptyConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.18 with HVPA", "1.18.0", emptyConfig, hvpaConfigEnabled),
+				Entry("kubernetes 1.18 with HVPA and custom scale-down update mode", "1.18.0", emptyConfig, hvpaConfigEnabledScaleDownOff),
+				Entry("kubernetes 1.18 with non-default autoscaler config", "1.18.0", configWithAutoscalerConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.18 with feature flags", "1.18.0", configWithFeatureFlags, hvpaConfigDisabled),
+				Entry("kubernetes 1.18 with NodeCIDRMaskSize", "1.18.0", configWithNodeCIDRMaskSize, hvpaConfigDisabled),
+				Entry("kubernetes 1.18 with PodEvictionTimeout", "1.18.0", configWithPodEvictionTimeout, hvpaConfigDisabled),
+				Entry("kubernetes 1.18 with NodeMonitorGradePeriod", "1.18.0", configWithNodeMonitorGracePeriod, hvpaConfigDisabled),
 
-				Entry("kubernetes 1.16 w/o config", "1.16.0", emptyConfig),
-				Entry("kubernetes 1.16 with non-default autoscaler config", "1.16.0", configWithAutoscalerConfig),
-				Entry("kubernetes 1.16 with feature flags", "1.16.0", configWithFeatureFlags),
-				Entry("kubernetes 1.16 with NodeCIDRMaskSize", "1.16.0", configWithNodeCIDRMaskSize),
-				Entry("kubernetes 1.16 with PodEvictionTimeout", "1.16.0", configWithPodEvictionTimeout),
-				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.16.0", configWithNodeMonitorGracePeriod),
+				Entry("kubernetes 1.17 w/o config", "1.17.0", emptyConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.17 with HVPA", "1.17.0", emptyConfig, hvpaConfigEnabled),
+				Entry("kubernetes 1.17 with HVPA and custom scale-down update mode", "1.17.0", emptyConfig, hvpaConfigEnabledScaleDownOff),
+				Entry("kubernetes 1.17 with non-default autoscaler config", "1.17.0", configWithAutoscalerConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.17 with feature flags", "1.17.0", configWithFeatureFlags, hvpaConfigDisabled),
+				Entry("kubernetes 1.17 with NodeCIDRMaskSize", "1.17.0", configWithNodeCIDRMaskSize, hvpaConfigDisabled),
+				Entry("kubernetes 1.17 with PodEvictionTimeout", "1.17.0", configWithPodEvictionTimeout, hvpaConfigDisabled),
+				Entry("kubernetes 1.17 with NodeMonitorGradePeriod", "1.17.0", configWithNodeMonitorGracePeriod, hvpaConfigDisabled),
 
-				Entry("kubernetes 1.15 w/o config", "1.15.0", emptyConfig),
-				Entry("kubernetes 1.15 with non-default autoscaler config", "1.15.0", configWithAutoscalerConfig),
-				Entry("kubernetes 1.15 with feature flags", "1.15.0", configWithFeatureFlags),
-				Entry("kubernetes 1.15 with NodeCIDRMaskSize", "1.15.0", configWithNodeCIDRMaskSize),
-				Entry("kubernetes 1.15 with PodEvictionTimeout", "1.15.0", configWithPodEvictionTimeout),
-				Entry("kubernetes 1.19 with NodeMonitorGradePeriod", "1.15.0", configWithNodeMonitorGracePeriod),
+				Entry("kubernetes 1.16 w/o config", "1.16.0", emptyConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.16 with HVPA", "1.16.0", emptyConfig, hvpaConfigEnabled),
+				Entry("kubernetes 1.16 with HVPA and custom scale-down update mode", "1.16.0", emptyConfig, hvpaConfigEnabledScaleDownOff),
+				Entry("kubernetes 1.16 with non-default autoscaler config", "1.16.0", configWithAutoscalerConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.16 with feature flags", "1.16.0", configWithFeatureFlags, hvpaConfigDisabled),
+				Entry("kubernetes 1.16 with NodeCIDRMaskSize", "1.16.0", configWithNodeCIDRMaskSize, hvpaConfigDisabled),
+				Entry("kubernetes 1.16 with PodEvictionTimeout", "1.16.0", configWithPodEvictionTimeout, hvpaConfigDisabled),
+				Entry("kubernetes 1.16 with NodeMonitorGradePeriod", "1.16.0", configWithNodeMonitorGracePeriod, hvpaConfigDisabled),
+
+				Entry("kubernetes 1.15 w/o config", "1.15.0", emptyConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.15 with HVPA", "1.15.0", emptyConfig, hvpaConfigEnabled),
+				Entry("kubernetes 1.15 with HVPA and custom scale-down update mode", "1.15.0", emptyConfig, hvpaConfigEnabledScaleDownOff),
+				Entry("kubernetes 1.15 with non-default autoscaler config", "1.15.0", configWithAutoscalerConfig, hvpaConfigDisabled),
+				Entry("kubernetes 1.15 with feature flags", "1.15.0", configWithFeatureFlags, hvpaConfigDisabled),
+				Entry("kubernetes 1.15 with NodeCIDRMaskSize", "1.15.0", configWithNodeCIDRMaskSize, hvpaConfigDisabled),
+				Entry("kubernetes 1.15 with PodEvictionTimeout", "1.15.0", configWithPodEvictionTimeout, hvpaConfigDisabled),
+				Entry("kubernetes 1.15 with NodeMonitorGradePeriod", "1.15.0", configWithNodeMonitorGracePeriod, hvpaConfigDisabled),
 			)
 		})
 	})

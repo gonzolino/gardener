@@ -796,20 +796,20 @@ var _ = Describe("kubernetes", func() {
 	)
 
 	DescribeTable("#ReconcileServicePorts",
-		func(existingPorts []corev1.ServicePort, matcher gomegatypes.GomegaMatcher) {
-			Expect(ReconcileServicePorts(existingPorts, desiredPorts)).To(matcher)
+		func(existingPorts []corev1.ServicePort, serviceType corev1.ServiceType, matcher gomegatypes.GomegaMatcher) {
+			Expect(ReconcileServicePorts(existingPorts, desiredPorts, serviceType)).To(matcher)
 		},
-		Entry("existing ports is nil", nil, ConsistOf(port1, port2, port3)),
-		Entry("no existing ports", []corev1.ServicePort{}, ConsistOf(port1, port2, port3)),
-		Entry("existing but undesired ports", []corev1.ServicePort{{Name: "foo"}}, ConsistOf(port1, port2, port3)),
-		Entry("existing and desired ports", []corev1.ServicePort{{Name: port1.Name, NodePort: 1337}}, ConsistOf(corev1.ServicePort{Name: port1.Name, Protocol: port1.Protocol, Port: port1.Port, NodePort: 1337}, port2, port3)),
-		Entry("existing and both desired and undesired ports", []corev1.ServicePort{{Name: "foo"}, {Name: port1.Name, NodePort: 1337}}, ConsistOf(corev1.ServicePort{Name: port1.Name, Protocol: port1.Protocol, Port: port1.Port, NodePort: 1337}, port2, port3)),
+		Entry("existing ports is nil", nil, corev1.ServiceTypeLoadBalancer, ConsistOf(port1, port2, port3)),
+		Entry("no existing ports", []corev1.ServicePort{}, corev1.ServiceTypeLoadBalancer, ConsistOf(port1, port2, port3)),
+		Entry("existing but undesired ports", []corev1.ServicePort{{Name: "foo"}}, corev1.ServiceTypeLoadBalancer, ConsistOf(port1, port2, port3)),
+		Entry("existing and desired ports when spec.type=LoadBalancer", []corev1.ServicePort{{Name: port1.Name, NodePort: 1337}}, corev1.ServiceTypeLoadBalancer, ConsistOf(corev1.ServicePort{Name: port1.Name, Protocol: port1.Protocol, Port: port1.Port, NodePort: 1337}, port2, port3)),
+		Entry("existing and desired ports when spec.type=ClusterIP", []corev1.ServicePort{{Name: port1.Name, NodePort: 1337}}, corev1.ServiceTypeClusterIP, ConsistOf(port1, port2, port3)),
+		Entry("existing and both desired and undesired ports", []corev1.ServicePort{{Name: "foo"}, {Name: port1.Name, NodePort: 1337}}, corev1.ServiceTypeLoadBalancer, ConsistOf(corev1.ServicePort{Name: port1.Name, Protocol: port1.Protocol, Port: port1.Port, NodePort: 1337}, port2, port3)),
 	)
 
 	Describe("#WaitUntilLoadBalancerIsReady", func() {
 		var (
 			k8sShootClient kubernetes.Interface
-			reader         *mockclient.MockReader
 			key            = client.ObjectKey{Namespace: metav1.NamespaceSystem, Name: "load-balancer"}
 			logger         = logrus.NewEntry(logger.NewNopLogger())
 			scheme         *runtime.Scheme
@@ -818,11 +818,9 @@ var _ = Describe("kubernetes", func() {
 		BeforeEach(func() {
 			scheme = runtime.NewScheme()
 			Expect(corev1.AddToScheme(scheme)).To(Succeed())
-			reader = mockclient.NewMockReader(ctrl)
 			c.EXPECT().Scheme().Return(scheme).AnyTimes()
 			k8sShootClient = fakeclientset.NewClientSetBuilder().
 				WithClient(c).
-				WithAPIReader(reader).
 				Build()
 		})
 
@@ -887,7 +885,7 @@ var _ = Describe("kubernetes", func() {
 						*obj = *svc
 						return nil
 					}),
-				reader.EXPECT().List(gomock.Any(), gomock.AssignableToTypeOf(&corev1.EventList{}), gomock.Any()).DoAndReturn(
+				c.EXPECT().List(gomock.Any(), gomock.AssignableToTypeOf(&corev1.EventList{}), gomock.Any()).DoAndReturn(
 					func(_ context.Context, list *corev1.EventList, _ ...client.ListOption) error {
 						list.Items = append(list.Items, event)
 						return nil
@@ -1156,14 +1154,33 @@ var _ = Describe("kubernetes", func() {
 
 	Describe("#NewestPodForDeployment", func() {
 		var (
-			name        = "deployment-name"
-			namespace   = "deployment-namespace"
-			uid         = types.UID("deployment-uid")
-			labels      = map[string]string{"foo": "bar"}
-			listOptions = []interface{}{
+			name      = "deployment-name"
+			namespace = "deployment-namespace"
+			uid       = types.UID("deployment-uid")
+			labels    = map[string]string{"foo": "bar"}
+
+			podTemplatehashKey = "pod-template-hash"
+			rs1PodTemplateHash = "11111"
+			rs2PodTemplateHash = "22222"
+			rs3PodTemplateHash = "33333"
+			rs1Labels          = map[string]string{
+				"foo":              "bar",
+				podTemplatehashKey: rs1PodTemplateHash,
+			}
+			rs2Labels = map[string]string{
+				"foo":              "bar",
+				podTemplatehashKey: rs2PodTemplateHash,
+			}
+			rs3Labels = map[string]string{
+				"foo":              "bar",
+				podTemplatehashKey: rs3PodTemplateHash,
+			}
+
+			rsListOptions = []interface{}{
 				client.InNamespace(namespace),
 				client.MatchingLabels(labels),
 			}
+			podListOptions []interface{}
 
 			deployment = &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1178,32 +1195,68 @@ var _ = Describe("kubernetes", func() {
 				},
 			}
 
-			replicaSet1 = &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
-				Name:              "replicaset1",
-				UID:               "replicaset1",
-				CreationTimestamp: metav1.Now(),
-				OwnerReferences: []metav1.OwnerReference{{
-					APIVersion: "apps/v1",
-					Kind:       "Deployment",
-					Name:       name,
-					UID:        uid,
-				}},
-			}}
-			replicaSet2 = &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
-				Name:              "replicaset2",
-				UID:               "replicaset2",
-				CreationTimestamp: metav1.Time{Time: time.Now().Add(+time.Hour)},
-				OwnerReferences: []metav1.OwnerReference{{
-					APIVersion: "apps/v1",
-					Kind:       "Deployment",
-					Name:       "other-deployment",
-					UID:        "other-uid",
-				}},
-			}}
+			replicaSet1 = &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              name + "-" + rs1PodTemplateHash,
+					Labels:            rs1Labels,
+					UID:               "replicaset1",
+					CreationTimestamp: metav1.Now(),
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       name,
+						UID:        uid,
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: rs1Labels,
+					},
+				},
+			}
+			replicaSet2 = &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              name + "-" + rs2PodTemplateHash,
+					Labels:            rs2Labels,
+					UID:               "replicaset2",
+					CreationTimestamp: metav1.Time{Time: time.Now().Add(+time.Hour)},
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       "other-deployment",
+						UID:        "other-uid",
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: rs2Labels,
+					},
+				},
+			}
+			replicaSet3 = &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              name + "-" + rs3PodTemplateHash,
+					Labels:            rs3Labels,
+					UID:               "replicaset3",
+					CreationTimestamp: metav1.Time{Time: time.Now().Add(-time.Hour)},
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       name,
+						UID:        uid,
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: rs3Labels,
+					},
+				},
+			}
 
 			pod1 = &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 				Name:              "pod1",
 				UID:               "pod1",
+				Labels:            rs1Labels,
 				CreationTimestamp: metav1.Now(),
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "apps/v1",
@@ -1215,18 +1268,25 @@ var _ = Describe("kubernetes", func() {
 			pod2 = &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 				Name:              "pod2",
 				UID:               "pod2",
-				CreationTimestamp: metav1.Time{Time: time.Now().Add(+time.Hour)},
+				Labels:            rs1Labels,
+				CreationTimestamp: metav1.Time{Time: time.Now().Add(-time.Hour)},
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "apps/v1",
 					Kind:       "ReplicaSet",
-					Name:       replicaSet2.Name,
-					UID:        replicaSet2.UID,
+					Name:       replicaSet1.Name,
+					UID:        replicaSet1.UID,
 				}},
 			}}
 		)
 
+		BeforeEach(func() {
+			podSelector, err := metav1.LabelSelectorAsSelector(replicaSet1.Spec.Selector)
+			Expect(err).To(BeNil())
+			podListOptions = append(rsListOptions, client.MatchingLabelsSelector{Selector: podSelector})
+		})
+
 		It("should return an error because the newest ReplicaSet determination failed", func() {
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), listOptions...).Return(fakeErr)
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).Return(fakeErr)
 
 			pod, err := NewestPodForDeployment(ctx, c, deployment)
 			Expect(err).To(MatchError(fakeErr))
@@ -1234,31 +1294,118 @@ var _ = Describe("kubernetes", func() {
 		})
 
 		It("should return nil because no replica set found", func() {
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), listOptions...)
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...)
 
 			pod, err := NewestPodForDeployment(ctx, c, deployment)
 			Expect(err).To(BeNil())
 			Expect(pod).To(BeNil())
 		})
 
-		It("should return an error because the newest pod determination failed", func() {
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), listOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
-				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2}}
+		It("should return an error because listing pods failed", func() {
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2, *replicaSet3}}
 				return nil
 			})
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), listOptions...).Return(fakeErr)
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), podListOptions...).Return(fakeErr)
 
 			pod, err := NewestPodForDeployment(ctx, c, deployment)
 			Expect(err).To(MatchError(fakeErr))
 			Expect(pod).To(BeNil())
 		})
 
-		It("should return nil because no replica set found", func() {
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), listOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
-				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2}}
+		It("should return an error because the replicasSet has no pod selector", func() {
+			rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+				Name:              "rs",
+				Labels:            rs1Labels,
+				UID:               "rs",
+				CreationTimestamp: metav1.Now(),
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Name:       name,
+					UID:        uid,
+				}},
+			}}
+			rsError := fmt.Errorf("no pod selector specified in replicaSet %s/%s", rs.Namespace, rs.Name)
+
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*rs}}
 				return nil
 			})
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), listOptions...)
+
+			pod, err := NewestPodForDeployment(ctx, c, deployment)
+			Expect(err).To(MatchError(rsError))
+			Expect(pod).To(BeNil())
+		})
+
+		It("should return an error because the replicasSet has no matchLabels or matchExpressions", func() {
+			rs := &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "rs",
+					Labels:            rs1Labels,
+					UID:               "rs",
+					CreationTimestamp: metav1.Now(),
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       name,
+						UID:        uid,
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels:      map[string]string{},
+						MatchExpressions: []metav1.LabelSelectorRequirement{},
+					}},
+			}
+			rsError := fmt.Errorf("no matchLabels or matchExpressions specified in replicaSet %s/%s", rs.Namespace, rs.Name)
+
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*rs}}
+				return nil
+			})
+
+			pod, err := NewestPodForDeployment(ctx, c, deployment)
+			Expect(err).To(MatchError(rsError))
+			Expect(pod).To(BeNil())
+		})
+
+		It("should return an error because the matchExpressions is invalid", func() {
+			rs := &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "rs",
+					Labels:            rs1Labels,
+					UID:               "rs",
+					CreationTimestamp: metav1.Now(),
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       name,
+						UID:        uid,
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "foo", Operator: metav1.LabelSelectorOpIn, Values: []string{}}},
+					}},
+			}
+
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*rs}}
+				return nil
+			})
+
+			pod, err := NewestPodForDeployment(ctx, c, deployment)
+			Expect(err).To(MatchError(ContainSubstring("for 'in', 'notin' operators, values set can't be empty")))
+			Expect(pod).To(BeNil())
+		})
+
+		It("should return nil because no pod was found", func() {
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2, *replicaSet3}}
+				return nil
+			})
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), podListOptions...)
 
 			pod, err := NewestPodForDeployment(ctx, c, deployment)
 			Expect(err).To(BeNil())
@@ -1266,11 +1413,11 @@ var _ = Describe("kubernetes", func() {
 		})
 
 		It("should return the newest pod", func() {
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), listOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
-				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2}}
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&appsv1.ReplicaSetList{}), rsListOptions...).DoAndReturn(func(_ context.Context, list *appsv1.ReplicaSetList, _ ...client.ListOption) error {
+				*list = appsv1.ReplicaSetList{Items: []appsv1.ReplicaSet{*replicaSet1, *replicaSet2, *replicaSet3}}
 				return nil
 			})
-			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), listOptions...).DoAndReturn(func(_ context.Context, list *corev1.PodList, _ ...client.ListOption) error {
+			c.EXPECT().List(ctx, gomock.AssignableToTypeOf(&corev1.PodList{}), podListOptions...).DoAndReturn(func(_ context.Context, list *corev1.PodList, _ ...client.ListOption) error {
 				*list = corev1.PodList{Items: []corev1.Pod{*pod1, *pod2}}
 				return nil
 			})
@@ -1309,7 +1456,7 @@ var _ = Describe("kubernetes", func() {
 				body.EXPECT().Close(),
 			)
 
-			actual, err := MostRecentCompleteLogs(ctx, pods, pod, containerName, nil)
+			actual, err := MostRecentCompleteLogs(ctx, pods, pod, containerName, nil, nil)
 			Expect(err).To(MatchError(fakeErr))
 			Expect(actual).To(BeEmpty())
 		})
@@ -1317,20 +1464,34 @@ var _ = Describe("kubernetes", func() {
 		DescribeTable("#OwnedBy",
 			func(containerStatuses []corev1.ContainerStatus, containerName string, previous bool) {
 				var (
+					headBytes int64 = 1024
 					tailLines int64 = 1337
 					logs            = []byte("logs")
 				)
 
 				pod.Status.ContainerStatuses = containerStatuses
 
-				options := &corev1.PodLogOptions{
+				tailLineOptions := &corev1.PodLogOptions{
 					Container: containerName,
 					TailLines: &tailLines,
 					Previous:  previous,
 				}
 
+				bytesLimitOptions := &corev1.PodLogOptions{
+					Container:  containerName,
+					LimitBytes: &headBytes,
+					Previous:   previous,
+				}
+
 				gomock.InOrder(
-					pods.EXPECT().GetLogs(podName, options).Return(rest.NewRequestWithClient(&url.URL{}, "", rest.ClientContentConfig{}, client)),
+					pods.EXPECT().GetLogs(podName, tailLineOptions).Return(rest.NewRequestWithClient(&url.URL{}, "", rest.ClientContentConfig{}, client)),
+					body.EXPECT().Read(gomock.Any()).DoAndReturn(func(data []byte) (int, error) {
+						copy(data, logs)
+						return len(logs), io.EOF
+					}),
+					body.EXPECT().Close(),
+
+					pods.EXPECT().GetLogs(podName, bytesLimitOptions).Return(rest.NewRequestWithClient(&url.URL{}, "", rest.ClientContentConfig{}, client)),
 					body.EXPECT().Read(gomock.Any()).DoAndReturn(func(data []byte) (int, error) {
 						copy(data, logs)
 						return len(logs), io.EOF
@@ -1338,9 +1499,9 @@ var _ = Describe("kubernetes", func() {
 					body.EXPECT().Close(),
 				)
 
-				actual, err := MostRecentCompleteLogs(ctx, pods, pod, containerName, &tailLines)
+				actual, err := MostRecentCompleteLogs(ctx, pods, pod, containerName, &tailLines, &headBytes)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(actual).To(Equal(string(logs)))
+				Expect(actual).To(Equal(fmt.Sprintf("%s\n...\n%s", logs, logs)))
 			},
 
 			Entry("w/o container name, logs of current  container", []corev1.ContainerStatus{{State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{}}}}, "", false),

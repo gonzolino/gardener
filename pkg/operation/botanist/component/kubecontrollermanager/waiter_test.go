@@ -48,7 +48,7 @@ var _ = Describe("WaiterTest", func() {
 		testLogger            = logrus.NewEntry(logger.NewNopLogger())
 		errorMsg              = "fake error"
 		fakeErr               = fmt.Errorf(errorMsg)
-		kubeControllerManager KubeControllerManager
+		kubeControllerManager Interface
 		namespace             = "shoot--foo--bar"
 		version               = semver.MustParse("v1.16.8")
 
@@ -87,6 +87,7 @@ var _ = Describe("WaiterTest", func() {
 				namespace,
 				version,
 				"",
+				nil,
 				nil,
 				nil,
 				nil,
@@ -251,6 +252,7 @@ var _ = Describe("WaiterTest", func() {
 				namespace,
 				semver.MustParse("v1.20.1"),
 				"",
+				nil,
 				nil,
 				nil,
 				nil,

@@ -17,6 +17,7 @@ package seed
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gardener/gardener/pkg/admissioncontroller/seedidentity"
 	"github.com/gardener/gardener/pkg/admissioncontroller/webhooks/auth/seed/graph"
@@ -25,16 +26,20 @@ import (
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardenoperationsv1alpha1 "github.com/gardener/gardener/pkg/apis/operations/v1alpha1"
 	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
+	bootstraputil "github.com/gardener/gardener/pkg/gardenlet/bootstrap/util"
 	"github.com/gardener/gardener/pkg/utils"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	"github.com/go-logr/logr"
 	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	auth "k8s.io/apiserver/pkg/authorization/authorizer"
+	bootstraptokenapi "k8s.io/cluster-bootstrap/token/api"
 )
 
 // AuthorizerName is the name of this authorizer.
@@ -63,6 +68,7 @@ var (
 	bastionResource                   = gardenoperationsv1alpha1.Resource("bastions")
 	certificateSigningRequestResource = certificatesv1beta1.Resource("certificatesigningrequests")
 	cloudProfileResource              = gardencorev1beta1.Resource("cloudprofiles")
+	clusterRoleBindingResource        = rbacv1.Resource("clusterrolebindings")
 	configMapResource                 = corev1.Resource("configmaps")
 	controllerDeploymentResource      = gardencorev1beta1.Resource("controllerdeployments")
 	controllerInstallationResource    = gardencorev1beta1.Resource("controllerinstallations")
@@ -74,9 +80,12 @@ var (
 	namespaceResource                 = corev1.Resource("namespaces")
 	projectResource                   = gardencorev1beta1.Resource("projects")
 	secretBindingResource             = gardencorev1beta1.Resource("secretbindings")
+	secretResource                    = corev1.Resource("secrets")
 	seedResource                      = gardencorev1beta1.Resource("seeds")
+	serviceAccountResource            = corev1.Resource("serviceaccounts")
 	shootResource                     = gardencorev1beta1.Resource("shoots")
 	shootStateResource                = gardencorev1alpha1.Resource("shootstates")
+	exposureClassResource             = gardencorev1alpha1.Resource("exposureclasses")
 )
 
 // TODO: Revisit all `DecisionNoOpinion` later. Today we cannot deny the request for backwards compatibility
@@ -94,8 +103,8 @@ func (a *authorizer) Authorize(_ context.Context, attrs auth.Attributes) (auth.D
 		switch requestResource {
 		case backupBucketResource:
 			return a.authorize(seedName, graph.VertexTypeBackupBucket, attrs,
-				[]string{"update", "patch", "delete"},
-				[]string{"create", "get", "list", "watch"},
+				[]string{"update", "patch"},
+				[]string{"create", "delete", "get", "list", "watch"},
 				[]string{"status"},
 			)
 		case backupEntryResource:
@@ -118,6 +127,8 @@ func (a *authorizer) Authorize(_ context.Context, attrs auth.Attributes) (auth.D
 			)
 		case cloudProfileResource:
 			return a.authorizeRead(seedName, graph.VertexTypeCloudProfile, attrs)
+		case clusterRoleBindingResource:
+			return a.authorizeClusterRoleBinding(seedName, attrs)
 		case configMapResource:
 			return a.authorizeConfigMap(seedName, attrs)
 		case controllerDeploymentResource:
@@ -145,17 +156,21 @@ func (a *authorizer) Authorize(_ context.Context, attrs auth.Attributes) (auth.D
 				[]string{"status"},
 			)
 		case namespaceResource:
-			return a.authorizeRead(seedName, graph.VertexTypeNamespace, attrs)
+			return a.authorizeNamespace(seedName, attrs)
 		case projectResource:
 			return a.authorizeRead(seedName, graph.VertexTypeProject, attrs)
 		case secretBindingResource:
 			return a.authorizeRead(seedName, graph.VertexTypeSecretBinding, attrs)
+		case secretResource:
+			return a.authorizeSecret(seedName, attrs)
 		case seedResource:
 			return a.authorize(seedName, graph.VertexTypeSeed, attrs,
 				nil,
 				[]string{"create", "update", "patch", "delete", "get", "list", "watch"},
 				[]string{"status"},
 			)
+		case serviceAccountResource:
+			return a.authorizeServiceAccount(seedName, attrs)
 		case shootResource:
 			return a.authorize(seedName, graph.VertexTypeShoot, attrs,
 				[]string{"update", "patch"},
@@ -164,10 +179,12 @@ func (a *authorizer) Authorize(_ context.Context, attrs auth.Attributes) (auth.D
 			)
 		case shootStateResource:
 			return a.authorize(seedName, graph.VertexTypeShootState, attrs,
-				[]string{"get", "update", "patch"},
+				[]string{"get", "update", "patch", "delete"},
 				[]string{"create"},
 				nil,
 			)
+		case exposureClassResource:
+			return a.authorizeRead(seedName, graph.VertexTypeExposureClass, attrs)
 		default:
 			a.logger.Info(
 				"unhandled resource request",
@@ -183,6 +200,28 @@ func (a *authorizer) Authorize(_ context.Context, attrs auth.Attributes) (auth.D
 	return auth.DecisionNoOpinion, "", nil
 }
 
+func (a *authorizer) authorizeClusterRoleBinding(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
+	// Allow gardenlet to delete its cluster role binding after bootstrapping (in this case, there is no `Seed` resource
+	// in the system yet, so we can't rely on the graph). Ambiguous gardenlets can delete all relevant cluster role
+	// bindings.
+	if attrs.GetVerb() == "delete" &&
+		strings.HasPrefix(attrs.GetName(), bootstraputil.ClusterRoleBindingNamePrefix) {
+
+		managedSeedNamespace, managedSeedName := bootstraputil.MetadataFromClusterRoleBindingName(attrs.GetName())
+		if seedName == "" ||
+			(managedSeedNamespace == v1beta1constants.GardenNamespace && managedSeedName == seedName) {
+
+			return auth.DecisionAllow, "", nil
+		}
+	}
+
+	return a.authorize(seedName, graph.VertexTypeClusterRoleBinding, attrs,
+		[]string{"get", "patch", "update"},
+		[]string{"create"},
+		nil,
+	)
+}
+
 func (a *authorizer) authorizeConfigMap(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
 	if attrs.GetVerb() == "get" &&
 		attrs.GetNamespace() == metav1.NamespaceSystem &&
@@ -195,7 +234,7 @@ func (a *authorizer) authorizeConfigMap(seedName string, attrs auth.Attributes) 
 }
 
 func (a *authorizer) authorizeEvent(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
-	if ok, reason := a.checkVerb(seedName, attrs, "create"); !ok {
+	if ok, reason := a.checkVerb(seedName, attrs, "create", "patch"); !ok {
 		return auth.DecisionNoOpinion, reason, nil
 	}
 
@@ -220,8 +259,71 @@ func (a *authorizer) authorizeLease(seedName string, attrs auth.Attributes) (aut
 	)
 }
 
+func (a *authorizer) authorizeNamespace(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
+	// TODO: Remove this once the gardenlet's `ControllerInstallation` controller does no longer populate the already
+	// deprecated `gardener.garden.identity` value when rendering the Helm charts.
+	if attrs.GetName() == v1beta1constants.GardenNamespace &&
+		attrs.GetVerb() == "get" {
+
+		return auth.DecisionAllow, "", nil
+	}
+
+	return a.authorizeRead(seedName, graph.VertexTypeNamespace, attrs)
+}
+
+func (a *authorizer) authorizeSecret(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
+	// Allow gardenlets to get/list/watch secrets in their seed-<name> namespaces. Allow ambiguous gardenlets to
+	// get/list/watch secrets secrets in all seed-* namespaces.
+	if utils.ValueExists(attrs.GetVerb(), []string{"get", "list", "watch"}) &&
+		((seedName != "" && attrs.GetNamespace() == gutil.ComputeGardenNamespace(seedName)) ||
+			(seedName == "" && strings.HasPrefix(attrs.GetNamespace(), gutil.SeedNamespaceNamePrefix))) {
+
+		return auth.DecisionAllow, "", nil
+	}
+
+	// Allow gardenlet to delete its bootstrap token (in this case, there is no `Seed` resource in the system yet, so
+	// we can't rely on the graph). Ambiguous gardenlets can delete all bootstrap tokens.
+	if (attrs.GetVerb() == "delete" &&
+		attrs.GetNamespace() == metav1.NamespaceSystem &&
+		strings.HasPrefix(attrs.GetName(), bootstraptokenapi.BootstrapTokenSecretPrefix)) &&
+		(seedName == "" ||
+			(attrs.GetName() == bootstraptokenapi.BootstrapTokenSecretPrefix+bootstraputil.TokenID(metav1.ObjectMeta{Name: seedName, Namespace: v1beta1constants.GardenNamespace}))) {
+
+		return auth.DecisionAllow, "", nil
+	}
+
+	return a.authorize(seedName, graph.VertexTypeSecret, attrs,
+		[]string{"get", "patch", "update", "delete"},
+		[]string{"create"},
+		nil,
+	)
+}
+
+func (a *authorizer) authorizeServiceAccount(seedName string, attrs auth.Attributes) (auth.Decision, string, error) {
+	// Allow gardenlet to delete its service account after bootstrapping (in this case, there is no `Seed` resource in
+	// the system yet, so we can't rely on the graph). Ambiguous gardenlets can delete all relevant service accounts.
+	if attrs.GetVerb() == "delete" &&
+		attrs.GetNamespace() == v1beta1constants.GardenNamespace &&
+		strings.HasPrefix(attrs.GetName(), bootstraputil.ServiceAccountNamePrefix) &&
+		(seedName == "" ||
+			strings.TrimPrefix(attrs.GetName(), bootstraputil.ServiceAccountNamePrefix) == seedName) {
+
+		return auth.DecisionAllow, "", nil
+	}
+
+	return a.authorize(seedName, graph.VertexTypeServiceAccount, attrs,
+		[]string{"get", "patch", "update"},
+		[]string{"create"},
+		nil,
+	)
+}
+
 func (a *authorizer) authorizeRead(seedName string, fromType graph.VertexType, attrs auth.Attributes) (auth.Decision, string, error) {
-	return a.authorize(seedName, fromType, attrs, []string{"get"}, nil, nil)
+	return a.authorize(seedName, fromType, attrs,
+		[]string{"get"},
+		nil,
+		nil,
+	)
 }
 
 func (a *authorizer) authorize(

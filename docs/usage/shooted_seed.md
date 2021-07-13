@@ -4,7 +4,7 @@ Create managed seed (aka "shooted seed") cluster with the `shoot.gardener.cloud/
 
 **Note:** Starting with Gardener v1.18, the `shoot.gardener.cloud/use-as-seed` annotation is deprecated.
 It still works as described here, however behind the scenes a `ManagedSeed` resource is created and reconciled.
-It is strongly recommended to use such resources directly to register shoots as seeds, as described in [Register Shoot as Seed](managed_seed.md).
+It is strongly recommended to use such resources directly to register shoots as seeds, as described in [Register Shoot as Seed](managed_seed.md). For instructions how to migrate existing seeds managed via the `use-as-seed` annotation, see [Migrating from the `use-as-seed` Annotation to `ManagedSeeds`](managed_seed.md#migrating-from-the-use-as-seed-annotation-to-managedseeds).
 
 ## Procedure
 
@@ -56,7 +56,7 @@ It is strongly recommended to use such resources directly to register shoots as 
 Option | Description
 --- | ---
 `true` | Registers the cluster as a seed cluster. Automatically deploys the gardenlet into the shoot cluster, unless specified otherwise (e.g. setting the `no-gardenlet` flag).
-`no-gardenlet` | Prevents the automatic deployment of the gardenlet into the shoot cluster. Instead, the `Seed` object will be created with the assumption that another gardenlet will be responsible for managing it (according to its `seedSelector` configuration).
+`no-gardenlet` | Prevents the automatic deployment of the gardenlet into the shoot cluster. Instead, the `Seed` object will be created with the assumption that another gardenlet will be responsible for managing it (according to its `seedConfig` configuration).
 `disable-capacity-reservation` | Set `spec.settings.excessCapacity.enabled` in the seed cluster to false (see [/example/50-seed.yaml](../../example/50-seed.yaml)).
 `invisible` | Set `spec.settings.scheduling.visible` in the seed cluster to false  (see [/example/50-seed.yaml](../../example/50-seed.yaml))
 `visible` | Set `spec.settings.scheduling.visible` in the seed cluster to true  (see [/example/50-seed.yaml](../../example/50-seed.yaml)) (**default**).

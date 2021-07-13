@@ -24,6 +24,7 @@ import (
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	mockkubernetes "github.com/gardener/gardener/pkg/client/kubernetes/mock"
 	"github.com/gardener/gardener/pkg/features"
+	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
 	gardenletfeatures "github.com/gardener/gardener/pkg/gardenlet/features"
 	"github.com/gardener/gardener/pkg/operation"
 	. "github.com/gardener/gardener/pkg/operation/botanist"
@@ -38,6 +39,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
 )
 
@@ -68,7 +71,7 @@ var _ = Describe("VPNSeedServer", func() {
 				Info: &gardencorev1beta1.Shoot{
 					Spec: gardencorev1beta1.ShootSpec{
 						Networking: gardencorev1beta1.Networking{
-							Nodes: pointer.StringPtr("10.0.0.0/24"),
+							Nodes: pointer.String("10.0.0.0/24"),
 						},
 					},
 				},
@@ -76,6 +79,16 @@ var _ = Describe("VPNSeedServer", func() {
 				Networks: &shootpkg.Networks{
 					Services: &net.IPNet{IP: net.IP{10, 0, 0, 1}, Mask: net.CIDRMask(10, 24)},
 					Pods:     &net.IPNet{IP: net.IP{10, 0, 0, 2}, Mask: net.CIDRMask(10, 24)},
+				},
+			}
+			botanist.Config = &config.GardenletConfiguration{
+				SNI: &config.SNI{
+					Ingress: &config.SNIIngress{
+						Namespace: pointer.String("test-ns"),
+						Labels: map[string]string{
+							"istio": "foo-bar",
+						},
+					},
 				},
 			}
 		})
@@ -102,7 +115,7 @@ var _ = Describe("VPNSeedServer", func() {
 
 	Describe("#DeployVPNSeedServer", func() {
 		var (
-			vpnSeedServer *mockvpnseedserver.MockVPNSeedServer
+			vpnSeedServer *mockvpnseedserver.MockInterface
 
 			ctx     = context.TODO()
 			fakeErr = fmt.Errorf("fake err")
@@ -113,10 +126,12 @@ var _ = Describe("VPNSeedServer", func() {
 			secretChecksumServer  = "5678"
 			secretNameDH          = v1beta1constants.GardenRoleOpenVPNDiffieHellman
 			secretChecksumDH      = "9012"
+
+			namespaceUID = types.UID("1234")
 		)
 
 		BeforeEach(func() {
-			vpnSeedServer = mockvpnseedserver.NewMockVPNSeedServer(ctrl)
+			vpnSeedServer = mockvpnseedserver.NewMockInterface(ctrl)
 
 			botanist.CheckSums = map[string]string{
 				secretNameTLSAuth: secretChecksumTLSAuth,
@@ -134,8 +149,22 @@ var _ = Describe("VPNSeedServer", func() {
 						VPNSeedServer: vpnSeedServer,
 					},
 				},
-				KonnectivityTunnelEnabled: false,
-				ReversedVPNEnabled:        true,
+				ReversedVPNEnabled: true,
+			}
+			botanist.Config = &config.GardenletConfiguration{
+				SNI: &config.SNI{
+					Ingress: &config.SNIIngress{
+						Namespace: pointer.String("test-ns"),
+						Labels: map[string]string{
+							"istio": "foo-bar",
+						},
+					},
+				},
+			}
+			botanist.SeedNamespaceObject = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: types.UID("1234"),
+				},
 			}
 		})
 
@@ -145,9 +174,24 @@ var _ = Describe("VPNSeedServer", func() {
 				Server:           component.Secret{Name: vpnseedserver.DeploymentName, Checksum: secretChecksumServer},
 				DiffieHellmanKey: component.Secret{Name: secretNameDH, Checksum: secretChecksumDH},
 			})
+			vpnSeedServer.EXPECT().SetSeedNamespaceObjectUID(namespaceUID)
+			vpnSeedServer.EXPECT().SetSNIConfig(botanist.Config.SNI)
 		})
 
-		It("should set the secrets and deploy", func() {
+		It("should set the secrets and SNI config and deploy", func() {
+			vpnSeedServer.EXPECT().Deploy(ctx)
+			Expect(botanist.DeployVPNServer(ctx)).To(Succeed())
+		})
+
+		It("should set the secrets and the ExposureClass handler config and deploy", func() {
+			botanist.ExposureClassHandler = &config.ExposureClassHandler{
+				Name: "test",
+				SNI:  &config.SNI{},
+			}
+
+			vpnSeedServer.EXPECT().SetExposureClassHandlerName(botanist.ExposureClassHandler.Name)
+			vpnSeedServer.EXPECT().SetSNIConfig(botanist.ExposureClassHandler.SNI)
+
 			vpnSeedServer.EXPECT().Deploy(ctx)
 			Expect(botanist.DeployVPNServer(ctx)).To(Succeed())
 		})

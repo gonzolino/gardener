@@ -184,14 +184,13 @@ var _ = Describe("Certificates", func() {
 
 			// mock update of secret in seed with the rotated kubeconfig
 			mockSeedClient.EXPECT().Get(ctx, kutil.Key(gardenClientConnection.KubeconfigSecret.Namespace, gardenClientConnection.KubeconfigSecret.Name), gomock.AssignableToTypeOf(&corev1.Secret{}))
-			mockSeedClient.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
-				secret, ok := obj.(*corev1.Secret)
-				Expect(ok).To(BeTrue())
-				Expect(secret.Name).To(Equal(gardenClientConnection.KubeconfigSecret.Name))
-				Expect(secret.Namespace).To(Equal(gardenClientConnection.KubeconfigSecret.Namespace))
-				Expect(secret.Data).ToNot(BeEmpty())
-				return nil
-			})
+			mockSeedClient.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+				DoAndReturn(func(_ context.Context, secret *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
+					Expect(secret.Name).To(Equal(gardenClientConnection.KubeconfigSecret.Name))
+					Expect(secret.Namespace).To(Equal(gardenClientConnection.KubeconfigSecret.Namespace))
+					Expect(secret.Data).ToNot(BeEmpty())
+					return nil
+				})
 
 			fakeClientMap := fakeclientmap.NewClientMap().
 				AddClient(keys.ForGarden(), mockGardenInterface)
@@ -346,57 +345,6 @@ users:
 			})
 		})
 
-		Describe("#getTargetedSeeds", func() {
-			It("should return a single Seed", func() {
-				mockSeedClient.EXPECT().Get(ctx, kutil.Key(seedName), gomock.AssignableToTypeOf(&gardencorev1beta1.Seed{})).DoAndReturn(func(_ context.Context, _ client.ObjectKey, seed *gardencorev1beta1.Seed) error {
-					seed.ObjectMeta = metav1.ObjectMeta{
-						Name: seedName,
-					}
-					return nil
-				})
-
-				seeds, err := getTargetedSeeds(ctx, mockSeedClient, nil, seedName)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(seeds).To(HaveLen(1))
-				Expect(seeds[0]).To(Equal(gardencorev1beta1.Seed{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: seedName,
-					},
-				}))
-			})
-
-			It("should return all Seed matched by seedSelector", func() {
-				items := []gardencorev1beta1.Seed{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "seed-one",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "seed-two",
-						},
-					},
-				}
-
-				seedSelector := &metav1.LabelSelector{MatchLabels: map[string]string{
-					"seed-kind": "promiscuous",
-				}}
-
-				seedLabelSelector, err := metav1.LabelSelectorAsSelector(seedSelector)
-				Expect(err).To(BeNil())
-				mockSeedClient.EXPECT().List(ctx, gomock.AssignableToTypeOf(&gardencorev1beta1.SeedList{}), client.MatchingLabelsSelector{Selector: seedLabelSelector}).DoAndReturn(func(_ context.Context, list *gardencorev1beta1.SeedList, _ ...client.ListOption) error {
-					*list = gardencorev1beta1.SeedList{Items: items}
-					return nil
-				})
-
-				seeds, err := getTargetedSeeds(ctx, mockSeedClient, seedSelector, seedName)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(seeds).To(HaveLen(2))
-				Expect(seeds).To(Equal(items))
-			})
-		})
-
 		Describe("#waitForCertificateRotation", func() {
 			var (
 				testKubeconfig string
@@ -417,8 +365,6 @@ users:
 					secret.Data = map[string][]byte{kubernetes.KubeConfig: []byte(testKubeconfig)}
 					return nil
 				})
-
-				mockSeedInterface.EXPECT().DirectClient().Return(mockSeedClient).AnyTimes()
 			})
 
 			It("should not return an error", func() {

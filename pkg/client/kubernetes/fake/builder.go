@@ -18,6 +18,7 @@ import (
 	"github.com/gardener/gardener/pkg/chartrenderer"
 	gardencoreclientset "github.com/gardener/gardener/pkg/client/core/clientset/versioned"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	gardenoperationsclientset "github.com/gardener/gardener/pkg/client/operations/clientset/versioned"
 	gardenseedmanagementclientset "github.com/gardener/gardener/pkg/client/seedmanagement/clientset/versioned"
 
 	apiextensionclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -36,11 +37,11 @@ type ClientSetBuilder struct {
 	restConfig            *rest.Config
 	client                client.Client
 	apiReader             client.Reader
-	directClient          client.Client
 	cache                 cache.Cache
 	kubernetes            kubernetesclientset.Interface
 	gardenCore            gardencoreclientset.Interface
 	gardenSeedManagement  gardenseedmanagementclientset.Interface
+	gardenOperations      gardenoperationsclientset.Interface
 	apiextension          apiextensionclientset.Interface
 	apiregistration       apiregistrationclientset.Interface
 	restClient            rest.Interface
@@ -89,13 +90,6 @@ func (b *ClientSetBuilder) WithAPIReader(apiReader client.Reader) *ClientSetBuil
 	return b
 }
 
-// WithDirectClient sets the directClient attribute of the builder.
-// Deprecated: kubernetes.Interface.DirectClient is also deprecated.
-func (b *ClientSetBuilder) WithDirectClient(directClient client.Client) *ClientSetBuilder {
-	b.directClient = directClient
-	return b
-}
-
 // WithCache sets the cache attribute of the builder.
 func (b *ClientSetBuilder) WithCache(cache cache.Cache) *ClientSetBuilder {
 	b.cache = cache
@@ -117,6 +111,12 @@ func (b *ClientSetBuilder) WithGardenCore(gardenCore gardencoreclientset.Interfa
 // WithGardenSeedManagement sets the gardenSeedManagement attribute of the builder.
 func (b *ClientSetBuilder) WithGardenSeedManagement(gardenSeedManagement gardenseedmanagementclientset.Interface) *ClientSetBuilder {
 	b.gardenSeedManagement = gardenSeedManagement
+	return b
+}
+
+// WithGardenOperations sets the gardenOperations attribute of the builder.
+func (b *ClientSetBuilder) WithGardenOperations(gardenOperations gardenoperationsclientset.Interface) *ClientSetBuilder {
+	b.gardenOperations = gardenOperations
 	return b
 }
 
@@ -166,11 +166,11 @@ func (b *ClientSetBuilder) Build() *ClientSet {
 		restConfig:            b.restConfig,
 		client:                b.client,
 		apiReader:             b.apiReader,
-		directClient:          b.directClient,
 		cache:                 b.cache,
 		kubernetes:            b.kubernetes,
 		gardenCore:            b.gardenCore,
 		gardenSeedManagement:  b.gardenSeedManagement,
+		gardenOperations:      b.gardenOperations,
 		apiextension:          b.apiextension,
 		apiregistration:       b.apiregistration,
 		restClient:            b.restClient,

@@ -20,15 +20,14 @@ import (
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	gardenerutils "github.com/gardener/gardener/pkg/utils"
+	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/test/framework"
 
-	"github.com/onsi/ginkgo"
-	g "github.com/onsi/gomega"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 )
 
-var _ = ginkgo.Describe("Shoot container runtime testing", func() {
-
+var _ = Describe("Shoot container runtime testing", func() {
 	f := framework.NewShootFramework(nil)
 
 	f.Default().Serial().CIt("should add worker pool with containerd", func(ctx context.Context) {
@@ -39,18 +38,18 @@ var _ = ginkgo.Describe("Shoot container runtime testing", func() {
 		)
 
 		if len(shoot.Spec.Provider.Workers) == 0 {
-			ginkgo.Skip("at least one worker pool is required in the test shoot")
+			Skip("at least one worker pool is required in the test shoot")
 		}
 
 		if !supportsContainerD(f.CloudProfile.Spec.MachineImages, workerImage) {
 			message := fmt.Sprintf("machine image '%s/%s' does not support containerd", workerImage.Name, *workerImage.Version)
-			ginkgo.Skip(message)
+			Skip(message)
 		}
 
 		containerdWorker := worker.DeepCopy()
 
 		allowedCharacters := "0123456789abcdefghijklmnopqrstuvwxyz"
-		id, err := gardenerutils.GenerateRandomStringFromCharset(3, allowedCharacters)
+		id, err := utils.GenerateRandomStringFromCharset(3, allowedCharacters)
 		framework.ExpectNoError(err)
 
 		containerdWorker.Name = fmt.Sprintf("test-%s", id)
@@ -63,10 +62,10 @@ var _ = ginkgo.Describe("Shoot container runtime testing", func() {
 
 		shoot.Spec.Provider.Workers = append(shoot.Spec.Provider.Workers, *containerdWorker)
 
-		ginkgo.By("adding containerd worker pool")
+		By("adding containerd worker pool")
 
 		defer func(ctx context.Context, workerPoolName string) {
-			ginkgo.By("removing containerd worker pool after test execution")
+			By("removing containerd worker pool after test execution")
 			err := f.UpdateShoot(ctx, func(s *gardencorev1beta1.Shoot) error {
 				var workers []gardencorev1beta1.Worker
 				for _, current := range s.Spec.Provider.Workers {
@@ -90,12 +89,12 @@ var _ = ginkgo.Describe("Shoot container runtime testing", func() {
 		// check the node labels of the worker pool to contain containerd label
 		nodeList, err := framework.GetAllNodesInWorkerPool(ctx, f.ShootClient, &containerdWorker.Name)
 		framework.ExpectNoError(err)
-		g.Expect(len(nodeList.Items)).To(g.Equal(int(containerdWorker.Minimum)))
+		Expect(len(nodeList.Items)).To(Equal(int(containerdWorker.Minimum)))
 
 		for _, node := range nodeList.Items {
 			value, found := node.Labels[extensionsv1alpha1.CRINameWorkerLabel]
-			g.Expect(found).To(g.BeTrue())
-			g.Expect(value).To(g.Equal(string(extensionsv1alpha1.CRINameContainerD)))
+			Expect(found).To(BeTrue())
+			Expect(value).To(Equal(string(extensionsv1alpha1.CRINameContainerD)))
 		}
 
 		// deploy root pod
@@ -122,8 +121,8 @@ var _ = ginkgo.Describe("Shoot container runtime testing", func() {
 func executeCommand(ctx context.Context, rootPodExecutor framework.RootPodExecutor, command, expected string) {
 	response, err := rootPodExecutor.Execute(ctx, command)
 	framework.ExpectNoError(err)
-	g.Expect(response).ToNot(g.BeNil())
-	g.Expect(string(response)).To(g.Equal(fmt.Sprintf("%s\n", expected)))
+	Expect(response).ToNot(BeNil())
+	Expect(string(response)).To(Equal(fmt.Sprintf("%s\n", expected)))
 }
 
 func supportsContainerD(cloudProfileImages []gardencorev1beta1.MachineImage, workerImage *gardencorev1beta1.ShootMachineImage) bool {

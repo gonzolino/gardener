@@ -17,9 +17,8 @@ package v1alpha1
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	componentbaseconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/klog"
 )
@@ -52,6 +51,9 @@ type ControllerManagerConfiguration struct {
 
 // ControllerManagerControllerConfiguration defines the configuration of the controllers.
 type ControllerManagerControllerConfiguration struct {
+	// Bastion defines the configuration of the Bastion controller.
+	// +optional
+	Bastion *BastionControllerConfiguration `json:"bastion,omitempty"`
 	// CloudProfile defines the configuration of the CloudProfile controller.
 	// +optional
 	CloudProfile *CloudProfileControllerConfiguration `json:"cloudProfile,omitempty"`
@@ -64,6 +66,9 @@ type ControllerManagerControllerConfiguration struct {
 	// Event defines the configuration of the Event controller.  If unset, the event controller will be disabled.
 	// +optional
 	Event *EventControllerConfiguration `json:"event,omitempty"`
+	// ExposureClass defines the configuration of the ExposureClass controller.
+	// +optional
+	ExposureClass *ExposureClassControllerConfiguration `json:"exposureClass,omitempty"`
 	// Plant defines the configuration of the Plant controller.
 	// +optional
 	Plant *PlantControllerConfiguration `json:"plant,omitempty"`
@@ -94,6 +99,18 @@ type ControllerManagerControllerConfiguration struct {
 	// ManagedSeedSet defines the configuration of the ManagedSeedSet controller.
 	// +optional
 	ManagedSeedSet *ManagedSeedSetControllerConfiguration `json:"managedSeedSet,omitempty"`
+}
+
+// BastionControllerConfiguration defines the configuration of the Bastion
+// controller.
+type BastionControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on
+	// events.
+	ConcurrentSyncs int `json:"concurrentSyncs"`
+	// MaxLifetime is the maximum time a Bastion resource can exist before it is
+	// forcefully deleted (defaults to '24h').
+	// +optional
+	MaxLifetime *metav1.Duration `json:"maxLifetime,omitempty"`
 }
 
 // CloudProfileControllerConfiguration defines the configuration of the CloudProfile
@@ -128,6 +145,14 @@ type EventControllerConfiguration struct {
 	// TTLNonShootEvents is the time-to-live for all non-shoot related events (defaults to `1h`).
 	// +optional
 	TTLNonShootEvents *metav1.Duration `json:"ttlNonShootEvents,omitempty"`
+}
+
+// ExposureClassControllerConfiguration defines the configuration of the
+// ExposureClass controller.
+type ExposureClassControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on
+	// events.
+	ConcurrentSyncs int `json:"concurrentSyncs"`
 }
 
 // PlantControllerConfiguration defines the configuration of the

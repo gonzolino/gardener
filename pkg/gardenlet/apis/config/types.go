@@ -15,6 +15,7 @@
 package config
 
 import (
+	"github.com/gardener/gardener/pkg/apis/core"
 	gardencore "github.com/gardener/gardener/pkg/apis/core"
 
 	corev1 "k8s.io/api/core/v1"
@@ -54,19 +55,16 @@ type GardenletConfiguration struct {
 	// "github.com/gardener/gardener/pkg/gardenlet/features/features.go".
 	// Default: nil
 	FeatureGates map[string]bool
-	// SeedConfig contains configuration for the seed cluster. Must not be set if seed selector is set.
-	// In this case the gardenlet creates the `Seed` object itself based on the provided config.
+	// SeedConfig contains configuration for the seed cluster.
 	SeedConfig *SeedConfig
-	// SeedSelector contains an optional list of labels on `Seed` resources that shall be managed by
-	// this gardenlet instance. In this case the `Seed` object is not managed by the Gardenlet and must
-	// be created by an operator/administrator.
-	SeedSelector *metav1.LabelSelector
 	// Logging contains an optional configurations for the logging stack deployed
 	// by the Gardenlet in the seed clusters.
 	Logging *Logging
 	// SNI contains an optional configuration for the APIServerSNI feature used
 	// by the Gardenlet in the seed clusters.
 	SNI *SNI
+	// ExposureClassHandlers is a list of optional of exposure class handlers.
+	ExposureClassHandlers []ExposureClassHandler
 }
 
 // GardenClientConnection specifies the kubeconfig file and the client connection settings
@@ -107,6 +105,8 @@ type GardenletControllerConfiguration struct {
 	BackupBucket *BackupBucketControllerConfiguration
 	// BackupEntry defines the configuration of the BackupEntry controller.
 	BackupEntry *BackupEntryControllerConfiguration
+	// Bastion defines the configuration of the Bastion controller.
+	Bastion *BastionControllerConfiguration
 	// ControllerInstallation defines the configuration of the ControllerInstallation controller.
 	ControllerInstallation *ControllerInstallationControllerConfiguration
 	// ControllerInstallationCare defines the configuration of the ControllerInstallationCare controller.
@@ -145,6 +145,13 @@ type BackupEntryControllerConfiguration struct {
 	// DeletionGracePeriodShootPurposes is a list of shoot purposes for which the deletion grace period applies. All
 	// BackupEntries corresponding to Shoots with different purposes will be deleted immediately.
 	DeletionGracePeriodShootPurposes []gardencore.ShootPurpose
+}
+
+// BastionControllerConfiguration defines the configuration of the Bastion
+// controller.
+type BastionControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on events.
+	ConcurrentSyncs *int
 }
 
 // ControllerInstallationControllerConfiguration defines the configuration of the
@@ -325,12 +332,20 @@ type GardenLoki struct {
 	Priority *int32
 }
 
+// ShootNodeLogging contains configuration for the shoot node logging.
+type ShootNodeLogging struct {
+	// ShootPurposes determines which shoots can have node logging by their purpose
+	ShootPurposes []core.ShootPurpose
+}
+
 // Logging contains configuration for the logging stack.
 type Logging struct {
 	// FluentBit contains configurations for the fluent-bit
 	FluentBit *FluentBit
 	// Loki contains configuration for the Loki
 	Loki *Loki
+	// ShootNodeLogging contains configurations for the shoot node logging
+	ShootNodeLogging *ShootNodeLogging
 }
 
 // ServerConfiguration contains details for the HTTP(S) servers.
@@ -376,10 +391,33 @@ type SNIIngress struct {
 	// ServiceName is the name of the ingressgateway Service.
 	// Defaults to "istio-ingressgateway".
 	ServiceName *string
+	// ServiceExternalIP is the external ip which should be assigned to the
+	// load balancer service of the ingress gateway.
+	// Compatibility is depending on the respective provider cloud-controller-manager.
+	ServiceExternalIP *string
 	// Namespace is the namespace in which the ingressgateway is deployed in.
 	// Defaults to "istio-ingress".
 	Namespace *string
 	// Labels of the ingressgateway
 	// Defaults to "istio: ingressgateway".
 	Labels map[string]string
+}
+
+// ExposureClassHandler contains configuration for an exposure class handler.
+type ExposureClassHandler struct {
+	// Name is the name of the exposure class handler.
+	Name string
+	// LoadBalancerService contains configuration which is used to configure the underlying
+	// load balancer to apply the control plane endpoint exposure strategy.
+	LoadBalancerService LoadBalancerServiceConfig
+	// SNI contains optional configuration for a dedicated ingressgateway belonging to
+	// an exposure class handler. This is only required in context of the APIServerSNI feature of the gardenlet.
+	SNI *SNI
+}
+
+// LoadBalancerService contains configuration which is used to configure the underlying
+// load balancer to apply the control plane endpoint exposure strategy.
+type LoadBalancerServiceConfig struct {
+	// Annotations is a key value map to annotate the underlying load balancer services.
+	Annotations map[string]string
 }

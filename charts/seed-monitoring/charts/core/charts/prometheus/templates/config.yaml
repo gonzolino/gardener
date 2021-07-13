@@ -340,6 +340,41 @@ data:
       metric_relabel_configs:
 {{ include "prometheus.keep-metrics.metric-relabel-config" .Values.allowedMetrics.coredns | indent 6 }}
 
+{{- if .Values.nodeLocalDNS.enabled }}
+    - job_name: node-local-dns
+      honor_labels: false
+      scheme: https
+      tls_config:
+        # This is needed because the kubelets' certificates are not are generated
+        # for a specific pod IP
+{{ include "prometheus.tls-config.kube-cert-auth-insecure" . | indent 8 }}
+      kubernetes_sd_configs:
+      - role: pod
+        api_server: https://kube-apiserver:443
+        tls_config:
+{{ include "prometheus.tls-config.kube-cert-auth" . | indent 10 }}
+      relabel_configs:
+      - source_labels:
+        - __meta_kubernetes_pod_name
+        action: keep
+        regex: node-local.*
+      - source_labels:
+        - __meta_kubernetes_pod_container_name
+        - __meta_kubernetes_pod_container_port_name
+        action: keep
+        regex: node-cache;metrics
+      - source_labels: [ __meta_kubernetes_pod_name ]
+        target_label: pod
+      - target_label: __address__
+        replacement: kube-apiserver:443
+      - source_labels: [__meta_kubernetes_pod_name,__meta_kubernetes_pod_container_port_number]
+        regex: (.+);(.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/namespaces/kube-system/pods/${1}:${2}/proxy/metrics
+      metric_relabel_configs:
+{{ include "prometheus.keep-metrics.metric-relabel-config" .Values.allowedMetrics.coredns | indent 6 }}
+{{ end }}
+
     - job_name: node-exporter
       honor_labels: false
       scrape_timeout: 30s
@@ -446,7 +481,7 @@ data:
         action: drop
 {{- end }}
 
-    # Fetch logs of the tunnel pod (vpn-shoot or konnectivity-agent) via the kube-apiserver, which requires a functional tunnel connection.
+    # Fetch logs of the tunnel pod (vpn-shoot) via the kube-apiserver, which requires a functional tunnel connection.
     - job_name: tunnel-probe-apiserver-proxy
       honor_labels: false
       metrics_path: /probe
@@ -463,15 +498,9 @@ data:
       relabel_configs:
       - target_label: type
         replacement: seed
-    {{- if .Values.konnectivityTunnel.enabled }}
-      - source_labels: [ __meta_kubernetes_pod_name ]
-        action: keep
-        regex: konnectivity-agent-(.+)
-    {{- else }}
       - source_labels: [ __meta_kubernetes_pod_name ]
         action: keep
         regex: vpn-shoot-(.+)
-    {{- end }}
       - source_labels: [ __meta_kubernetes_pod_name ]
         target_label: __param_target
         regex: (.+)
@@ -603,6 +632,32 @@ data:
         target_label: pod
       metric_relabel_configs:
 {{ include "prometheus.keep-metrics.metric-relabel-config" .Values.allowedMetrics.loki | indent 6 }}
+{{- end }}
+
+{{- if  (index .Values.rules.optional "lokiTelegraf" ).enabled }}
+    - job_name: loki-telegraf
+      honor_labels: false
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [{{ .Release.Namespace }}]
+      relabel_configs:
+      - source_labels:
+        - __meta_kubernetes_service_name
+        - __meta_kubernetes_endpoint_port_name
+        action: keep
+        regex: loki;telegraf
+      # common metrics
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [ __meta_kubernetes_pod_name ]
+        target_label: pod
+      metric_relabel_configs:
+      - source_labels: [__name__]
+        target_label: __name__
+        regex:  'iptables_(.+)'
+        action: replace
+        replacement: 'shoot_node_logging_incoming_$1'
 {{- end }}
 
 {{- if .Values.additionalScrapeConfigs }}

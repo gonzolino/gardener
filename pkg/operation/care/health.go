@@ -28,13 +28,13 @@ import (
 	gardenletfeatures "github.com/gardener/gardener/pkg/gardenlet/features"
 	"github.com/gardener/gardener/pkg/logger"
 	"github.com/gardener/gardener/pkg/operation"
-	"github.com/gardener/gardener/pkg/operation/botanist/component/konnectivity"
+	"github.com/gardener/gardener/pkg/operation/botanist"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils/flow"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
-	kuberneteshealth "github.com/gardener/gardener/pkg/utils/kubernetes/health"
 
 	resourcesv1alpha1 "github.com/gardener/gardener-resource-manager/pkg/apis/resources/v1alpha1"
 	"github.com/sirupsen/logrus"
@@ -162,7 +162,7 @@ func (h *Health) retrieveExtensions(ctx context.Context) ([]runtime.Object, erro
 	// Get BackupEntries separately as they are not namespaced i.e., they cannot be narrowed down
 	// to a shoot namespace like other extension resources above.
 	be := &extensionsv1alpha1.BackupEntry{}
-	beName := common.GenerateBackupEntryName(h.shoot.Info.Status.TechnicalID, h.shoot.Info.Status.UID)
+	beName := gutil.GenerateBackupEntryName(h.shoot.Info.Status.TechnicalID, h.shoot.Info.Status.UID)
 	if err := h.seedClient.Client().Get(ctx, kutil.Key(beName), be); client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
@@ -318,12 +318,7 @@ func (h *Health) checkSystemComponents(
 		return &c, nil
 	}
 
-	tunnelName := common.VPNTunnel
-	if podsList.Items[0].Labels["app"] == konnectivity.AgentName {
-		tunnelName = konnectivity.AgentName
-	}
-
-	if established, err := kuberneteshealth.CheckTunnelConnection(ctx, h.shootClient, logrus.NewEntry(logger.NewNopLogger()), tunnelName); err != nil || !established {
+	if established, err := botanist.CheckTunnelConnection(ctx, h.shootClient, logrus.NewEntry(logger.NewNopLogger()), common.VPNTunnel); err != nil || !established {
 		msg := "Tunnel connection has not been established"
 		if err != nil {
 			msg += fmt.Sprintf(" (%+v)", err)

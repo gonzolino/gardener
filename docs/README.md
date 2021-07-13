@@ -23,17 +23,21 @@
 
 ## Usage
 
-* [Register Shoot as Seed](usage/managed_seed.md)
-* [API Server Network Proxy Reverse Tunneling](usage/reverse-tunnel.md)
+* [APIServerSNI environment variable injection](usage/apiserver-sni-injection.md)
 * [Audit a Kubernetes cluster](usage/shoot_auditpolicy.md)
 * [Auto-Scaling for shoot clusters](usage/shoot_autoscaling.md)
+* [Cleanup of Shoot clusters in deletion](usage/shoot_cleanup.md)
 * [Custom `CoreDNS` configuration](usage/custom-dns.md)
+* [(Custom) CSI components](usage/csi_components.md)
+* [ExposureClasses](usage/exposureclasses.md)
 * [Gardener configuration and usage](usage/configuration.md)
 * [`ManagedIstio` feature](usage/istio.md)
 * [Network Policies in the Shoot Cluster](usage/shoot_network_policies.md)
 * [`NodeLocalDNS` feature](usage/node-local-dns.md)
 * [OpenIDConnect presets](usage/openidconnect-presets.md)
 * [Projects](usage/projects.md)
+* [Register Shoot as Seed](usage/managed_seed.md)
+* [Reversed Cluster VPN](usage/reversed-vpn-tunnel.md)
 * [Seed Bootstrapping](usage/seed_bootstrapping.md)
 * [Seed Settings](usage/seed_settings.md)
 * [Shoot cluster purposes](usage/shoot_purposes.md)
@@ -47,8 +51,6 @@
 * [Trigger shoot operations](usage/shoot_operations.md)
 * [Troubleshooting guide](usage/trouble_shooting_guide.md)
 * [Trusted TLS certificate for shoot control planes](usage/trusted-tls-for-control-planes.md)
-* [APIServerSNI environment variable injection](usage/apiserver-sni-injection.md)
-* [Reversed Cluster VPN](usage/reversed-vpn-tunnel.md)
 
 ## Proposals
 
@@ -76,7 +78,7 @@
 * [Setting up a local development environment](development/local_setup.md)
 * [Unit Testing and Dependency Management](development/testing_and_dependencies.md)
 * [Changing the API](development/changing-the-api.md)
-* [Features, Hotfixes, and Releases](development/process.md)
+* [Releases, Features, Hotfixes](development/process.md)
 * [Adding New Cloud Providers](development/new-cloud-provider.md)
 * [Extending the Monitoring Stack](development/monitoring-stack.md)
 * [How to create log parser for container into fluent-bit](development/log_parsers.md)
@@ -100,6 +102,7 @@
     * [`BackupEntry` resource](extensions/backupentry.md)
   * DNS providers
     * [`DNSProvider` and `DNSEntry` resources](extensions/dns.md)
+    * [`DNSRecord` resources](extensions/dnsrecord.md)
   * IaaS/Cloud providers
     * [Control plane customization webhooks](extensions/controlplane-webhooks.md)
     * [`Bastion` resource](extensions/bastion.md)
@@ -134,9 +137,11 @@
 * [Overwrite image vector](deployment/image_vector.md)
 * [Migration from Gardener `v0` to `v1`](deployment/migration_v0_to_v1.md)
 * [Feature Gates in Gardener](deployment/feature_gates.md)
+* [Configuring the Logging stack](deployment/configuring_logging.md)
 
 ## Monitoring
 
 * [Alerting](monitoring/alerting.md)
+* [Connectivity](monitoring/connectivity.md)
 * [User Alerts](monitoring/user_alerts.md)
 * [Operator Alerts](monitoring/operator_alerts.md)

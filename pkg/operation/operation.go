@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gardener/gardener/charts"
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1alpha1helper "github.com/gardener/gardener/pkg/apis/core/v1alpha1/helper"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -30,13 +29,12 @@ import (
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap"
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap/keys"
-	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/operation/etcdencryption"
 	"github.com/gardener/gardener/pkg/operation/garden"
 	"github.com/gardener/gardener/pkg/operation/seed"
-	"github.com/gardener/gardener/pkg/operation/shoot"
+	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils/chart"
 	"github.com/gardener/gardener/pkg/utils/flow"
 	gutil "github.com/gardener/gardener/pkg/utils/gardener"
@@ -48,8 +46,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -80,11 +76,11 @@ func NewBuilder() *Builder {
 		seedFunc: func(context.Context) (*seed.Seed, error) {
 			return nil, fmt.Errorf("seed object is required but not set")
 		},
-		shootFunc: func(context.Context, client.Client, *garden.Garden, *seed.Seed) (*shoot.Shoot, error) {
+		shootFunc: func(context.Context, client.Client, *garden.Garden, *seed.Seed) (*shootpkg.Shoot, error) {
 			return nil, fmt.Errorf("shoot object is required but not set")
 		},
-		chartsRootPathFunc: func() string {
-			return charts.Path
+		exposureClassFunc: func(string) (*config.ExposureClassHandler, error) {
+			return nil, nil
 		},
 	}
 }
@@ -162,29 +158,23 @@ func (b *Builder) WithSeedFrom(k8sGardenCoreInformers gardencoreinformers.Interf
 }
 
 // WithShoot sets the shootFunc attribute at the Builder.
-func (b *Builder) WithShoot(s *shoot.Shoot) *Builder {
-	b.shootFunc = func(_ context.Context, _ client.Client, _ *garden.Garden, _ *seed.Seed) (*shoot.Shoot, error) {
+func (b *Builder) WithShoot(s *shootpkg.Shoot) *Builder {
+	b.shootFunc = func(_ context.Context, _ client.Client, _ *garden.Garden, _ *seed.Seed) (*shootpkg.Shoot, error) {
 		return s, nil
 	}
 	return b
 }
 
-// WithChartsRootPath sets the ChartsRootPath attribute at the Builder.
-// Mainly used for testing. Optional.
-func (b *Builder) WithChartsRootPath(chartsRootPath string) *Builder {
-	b.chartsRootPathFunc = func() string { return chartsRootPath }
-	return b
-}
-
 // WithShootFrom sets the shootFunc attribute at the Builder which will build a new Shoot object.
 func (b *Builder) WithShootFrom(k8sGardenCoreInformers gardencoreinformers.Interface, gardenClient kubernetes.Interface, s *gardencorev1beta1.Shoot) *Builder {
-	b.shootFunc = func(ctx context.Context, c client.Client, gardenObj *garden.Garden, seedObj *seed.Seed) (*shoot.Shoot, error) {
-		return shoot.
+	b.shootFunc = func(ctx context.Context, c client.Client, gardenObj *garden.Garden, seedObj *seed.Seed) (*shootpkg.Shoot, error) {
+		return shootpkg.
 			NewBuilder().
 			WithShootObject(s).
-			WithCloudProfileObjectFromReader(gardenClient.APIReader()).
-			WithShootSecretFromReader(gardenClient.APIReader()).
+			WithCloudProfileObjectFromReader(gardenClient.Client()).
+			WithShootSecretFromReader(gardenClient.Client()).
 			WithProjectName(gardenObj.Project.Name).
+			WithExposureClassFromReader(gardenClient.Client()).
 			WithDisableDNS(!seedObj.Info.Spec.Settings.ShootDNS.Enabled).
 			WithInternalDomain(gardenObj.InternalDomain).
 			WithDefaultDomains(gardenObj.DefaultDomains).
@@ -196,15 +186,16 @@ func (b *Builder) WithShootFrom(k8sGardenCoreInformers gardencoreinformers.Inter
 // WithShootFromCluster sets the shootFunc attribute at the Builder which will build a new Shoot object constructed from the cluster resource.
 // The shoot status is still taken from the passed `shoot`, though.
 func (b *Builder) WithShootFromCluster(gardenClient, seedClient kubernetes.Interface, s *gardencorev1beta1.Shoot) *Builder {
-	b.shootFunc = func(ctx context.Context, c client.Client, gardenObj *garden.Garden, seedObj *seed.Seed) (*shoot.Shoot, error) {
-		shootNamespace := shoot.ComputeTechnicalID(gardenObj.Project.Name, s)
+	b.shootFunc = func(ctx context.Context, c client.Client, gardenObj *garden.Garden, seedObj *seed.Seed) (*shootpkg.Shoot, error) {
+		shootNamespace := shootpkg.ComputeTechnicalID(gardenObj.Project.Name, s)
 
-		shoot, err := shoot.
+		shoot, err := shootpkg.
 			NewBuilder().
 			WithShootObjectFromCluster(seedClient, shootNamespace).
 			WithCloudProfileObjectFromCluster(seedClient, shootNamespace).
-			WithShootSecretFromReader(gardenClient.APIReader()).
+			WithShootSecretFromReader(gardenClient.Client()).
 			WithProjectName(gardenObj.Project.Name).
+			WithExposureClassFromReader(gardenClient.Client()).
 			WithDisableDNS(!seedObj.Info.Spec.Settings.ShootDNS.Enabled).
 			WithInternalDomain(gardenObj.InternalDomain).
 			WithDefaultDomains(gardenObj.DefaultDomains).
@@ -214,6 +205,20 @@ func (b *Builder) WithShootFromCluster(gardenClient, seedClient kubernetes.Inter
 		}
 		shoot.Info.Status = s.Status
 		return shoot, nil
+	}
+	return b
+}
+
+// WithExposureClassHandlerFromConfig sets the exposureClassFunc attribute at the Builder which will find the
+// the required exposure class handler in the passed Gardenlet config.
+func (b *Builder) WithExposureClassHandlerFromConfig(cfg *config.GardenletConfiguration) *Builder {
+	b.exposureClassFunc = func(handlerName string) (*config.ExposureClassHandler, error) {
+		for _, handler := range cfg.ExposureClassHandlers {
+			if handler.Name == handlerName {
+				return &handler, nil
+			}
+		}
+		return nil, fmt.Errorf("No exposure class handler with name %q found", handlerName)
 	}
 	return b
 }
@@ -289,6 +294,14 @@ func (b *Builder) Build(ctx context.Context, clientMap clientmap.ClientMap) (*Op
 	}
 	operation.Shoot = shoot
 
+	if shoot.ExposureClass != nil {
+		exposureClassHandler, err := b.exposureClassFunc(shoot.ExposureClass.Handler)
+		if err != nil {
+			return nil, err
+		}
+		operation.ExposureClassHandler = exposureClassHandler
+	}
+
 	// Get the ManagedSeed object for this shoot, if it exists.
 	// Also read the managed seed API server settings from the managed-seed-api-server annotation.
 	operation.ManagedSeed, err = kutil.GetManagedSeed(ctx, gardenClient.GardenSeedManagement(), shoot.Info.Namespace, shoot.Info.Name)
@@ -312,8 +325,6 @@ func (b *Builder) Build(ctx context.Context, clientMap clientmap.ClientMap) (*Op
 			operation.ManagedSeedAPIServer = shootedSeed.APIServer
 		}
 	}
-
-	operation.ChartsRootPath = b.chartsRootPathFunc()
 
 	return operation, nil
 }
@@ -408,56 +419,56 @@ func (o *Operation) ReportShootProgress(ctx context.Context, stats *flow.Stats) 
 		description    = makeDescription(stats)
 		progress       = stats.ProgressPercent()
 		lastUpdateTime = metav1.Now()
+		shoot          = o.Shoot.Info
 	)
 
-	newShoot, err := kutil.TryUpdateShootStatus(ctx, o.K8sGardenClient.GardenCore(), retry.DefaultRetry, o.Shoot.Info.ObjectMeta,
-		func(shoot *gardencorev1beta1.Shoot) (*gardencorev1beta1.Shoot, error) {
-			if shoot.Status.LastOperation == nil {
-				return nil, fmt.Errorf("last operation of Shoot %s/%s is unset", shoot.Namespace, shoot.Name)
-			}
-			if shoot.Status.LastOperation.LastUpdateTime.After(lastUpdateTime.Time) {
-				return nil, fmt.Errorf("last operation of Shoot %s/%s was updated mid-air", shoot.Namespace, shoot.Name)
-			}
-			if description != "" {
-				shoot.Status.LastOperation.Description = description
-			}
-			shoot.Status.LastOperation.Progress = progress
-			shoot.Status.LastOperation.LastUpdateTime = lastUpdateTime
-			return shoot, nil
-		})
-	if err != nil {
+	if err := func() error {
+		statusPatch := client.StrategicMergeFrom(shoot.DeepCopy())
+
+		if shoot.Status.LastOperation == nil {
+			return fmt.Errorf("last operation of Shoot %s/%s is unset", shoot.Namespace, shoot.Name)
+		}
+		if shoot.Status.LastOperation.LastUpdateTime.After(lastUpdateTime.Time) {
+			return fmt.Errorf("last operation of Shoot %s/%s was updated mid-air", shoot.Namespace, shoot.Name)
+		}
+		if description != "" {
+			shoot.Status.LastOperation.Description = description
+		}
+		shoot.Status.LastOperation.Progress = progress
+		shoot.Status.LastOperation.LastUpdateTime = lastUpdateTime
+
+		return o.K8sGardenClient.Client().Status().Patch(ctx, shoot, statusPatch)
+	}(); err != nil {
 		o.Logger.Errorf("Could not report shoot progress: %v", err)
 		return
 	}
-
-	o.Shoot.Info = newShoot
 }
 
 // CleanShootTaskErrorAndUpdateStatusLabel removes the error with taskID from the Shoot's status.LastErrors array.
 // If the status.LastErrors array is empty then status.LastErrors is also removed. It also re-evaluates the shoot status
 // in case the last error list is empty now, and if necessary, updates the status label on the shoot.
 func (o *Operation) CleanShootTaskErrorAndUpdateStatusLabel(ctx context.Context, taskID string) {
-	updatedShoot, err := kutil.TryUpdateShootStatus(ctx, o.K8sGardenClient.GardenCore(), retry.DefaultRetry, o.Shoot.Info.ObjectMeta,
-		func(shoot *gardencorev1beta1.Shoot) (*gardencorev1beta1.Shoot, error) {
-			shoot.Status.LastErrors = gardencorev1beta1helper.DeleteLastErrorByTaskID(o.Shoot.Info.Status.LastErrors, taskID)
-			return shoot, nil
-		},
-	)
-	if err != nil {
-		o.Logger.Errorf("Could not update shoot's %s/%s last errors: %v", o.Shoot.Info.Namespace, o.Shoot.Info.Name, err)
+	shoot := o.Shoot.Info
+
+	statusPatch := client.MergeFrom(shoot.DeepCopy())
+	// LastErrors doesn't have patchMergeKey as TaskID is optional, so strategic merge wouldn't make a difference.
+	// This will effectively overwrite the whole LastErrors array. Though, this should be fine, as this controller is
+	// supposed to be the exclusive owner of this field.
+	shoot.Status.LastErrors = gardencorev1beta1helper.DeleteLastErrorByTaskID(shoot.Status.LastErrors, taskID)
+	if err := o.K8sGardenClient.Client().Status().Patch(ctx, shoot, statusPatch); err != nil {
+		o.Logger.Errorf("Could not update shoot's %s/%s last errors: %v", shoot.Namespace, shoot.Name, err)
 		return
 	}
-	o.Shoot.Info = updatedShoot
 
-	if len(o.Shoot.Info.Status.LastErrors) == 0 {
-		oldObj := o.Shoot.Info.DeepCopy()
-		kutil.SetMetaDataLabel(&o.Shoot.Info.ObjectMeta, v1beta1constants.ShootStatus, string(shoot.ComputeStatus(
-			o.Shoot.Info.Status.LastOperation,
-			o.Shoot.Info.Status.LastErrors,
-			o.Shoot.Info.Status.Conditions...,
+	if len(shoot.Status.LastErrors) == 0 {
+		metaPatch := client.MergeFrom(shoot.DeepCopy())
+		kutil.SetMetaDataLabel(&shoot.ObjectMeta, v1beta1constants.ShootStatus, string(shootpkg.ComputeStatus(
+			shoot.Status.LastOperation,
+			shoot.Status.LastErrors,
+			shoot.Status.Conditions...,
 		)))
-		if err := o.K8sGardenClient.Client().Patch(ctx, o.Shoot.Info, client.MergeFrom(oldObj)); err != nil {
-			o.Logger.Errorf("Could not update shoot's %s/%s status label after removing an erroneous task: %v", o.Shoot.Info.Namespace, o.Shoot.Info.Name, err)
+		if err := o.K8sGardenClient.Client().Patch(ctx, shoot, metaPatch); err != nil {
+			o.Logger.Errorf("Could not update shoot's %s/%s status label after removing an erroneous task: %v", shoot.Namespace, shoot.Name, err)
 			return
 		}
 	}
@@ -488,8 +499,34 @@ func (o *Operation) InjectShootShootImages(values map[string]interface{}, names 
 	return chart.InjectImages(values, o.ImageVector, names, imagevector.RuntimeVersion(o.ShootVersion()), imagevector.TargetVersion(o.ShootVersion()))
 }
 
-// EnsureShootStateExists creates the ShootState resource for the corresponding shoot and sets its ownerReferences to the Shoot.
+// EnsureShootStateExists creates the ShootState resource for the corresponding shoot and updates the operations object
 func (o *Operation) EnsureShootStateExists(ctx context.Context) error {
+	var (
+		err        error
+		shootState = &gardencorev1alpha1.ShootState{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      o.Shoot.Info.Name,
+				Namespace: o.Shoot.Info.Namespace,
+			},
+		}
+	)
+
+	if err = o.K8sGardenClient.Client().Create(ctx, shootState); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+	}
+
+	if err = o.K8sGardenClient.Client().Get(ctx, client.ObjectKeyFromObject(shootState), shootState); err != nil {
+		return err
+	}
+	o.ShootState = shootState
+	gardenerResourceList := gardencorev1alpha1helper.GardenerResourceDataList(shootState.Spec.Gardener)
+	o.Shoot.ETCDEncryption, err = etcdencryption.GetEncryptionConfig(gardenerResourceList)
+	return err
+}
+
+func (o *Operation) DeleteShootState(ctx context.Context) error {
 	shootState := &gardencorev1alpha1.ShootState{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      o.Shoot.Info.Name,
@@ -497,21 +534,14 @@ func (o *Operation) EnsureShootStateExists(ctx context.Context) error {
 		},
 	}
 
-	ownerReference := metav1.NewControllerRef(o.Shoot.Info, gardencorev1beta1.SchemeGroupVersion.WithKind("Shoot"))
-	ownerReference.BlockOwnerDeletion = pointer.BoolPtr(false)
-
-	_, err := controllerutils.StrategicMergePatchOrCreate(ctx, o.K8sGardenClient.Client(), shootState, func() error {
-		shootState.OwnerReferences = []metav1.OwnerReference{*ownerReference}
-		return nil
-	})
-	if err != nil {
+	if err := gutil.ConfirmDeletion(ctx, o.K8sGardenClient.Client(), shootState); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
-	o.ShootState = shootState
-	gardenerResourceList := gardencorev1alpha1helper.GardenerResourceDataList(shootState.Spec.Gardener)
-	o.Shoot.ETCDEncryption, err = etcdencryption.GetEncryptionConfig(gardenerResourceList)
-	return err
+	return client.IgnoreNotFound(o.K8sGardenClient.Client().Delete(ctx, shootState))
 }
 
 // SaveGardenerResourcesInShootState saves the provided GardenerResourcesDataList in the ShootState's `gardener` field
@@ -562,6 +592,13 @@ func (o *Operation) ComputeGrafanaOperatorsHost() string {
 	return o.ComputeIngressHost(common.GrafanaOperatorsPrefix)
 }
 
+// ComputeLokiHosts computes the host for loki.
+func (o *Operation) ComputeLokiHosts() []string {
+	return []string{
+		o.ComputeLokiHost(),
+	}
+}
+
 // ComputeGrafanaUsersHost computes the host for operators Grafana.
 func (o *Operation) ComputeGrafanaUsersHost() string {
 	return o.ComputeIngressHost(common.GrafanaUsersPrefix)
@@ -577,9 +614,14 @@ func (o *Operation) ComputePrometheusHost() string {
 	return o.ComputeIngressHost(common.PrometheusPrefix)
 }
 
+// ComputeLokiHost computes the host for loki.
+func (o *Operation) ComputeLokiHost() string {
+	return o.ComputeIngressHost(common.LokiPrefix)
+}
+
 // ComputeIngressHost computes the host for a given prefix.
 func (o *Operation) ComputeIngressHost(prefix string) string {
-	shortID := strings.Replace(o.Shoot.Info.Status.TechnicalID, shoot.TechnicalIDPrefix, "", 1)
+	shortID := strings.Replace(o.Shoot.Info.Status.TechnicalID, shootpkg.TechnicalIDPrefix, "", 1)
 	return fmt.Sprintf("%s-%s.%s", prefix, shortID, o.Seed.IngressDomain())
 }
 

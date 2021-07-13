@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"regexp"
 	"strings"
 	"time"
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/logging"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 
 	hvpav1alpha1 "github.com/gardener/hvpa-controller/api/v1alpha1"
@@ -38,9 +38,7 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -105,26 +103,6 @@ func GenerateAddonConfig(values map[string]interface{}, enabled bool) map[string
 		}
 	}
 	return v
-}
-
-// GenerateBackupEntryName returns BackupEntry resource name created from provided <seedNamespace> and <shootUID>.
-func GenerateBackupEntryName(seedNamespace string, shootUID types.UID) string {
-	return fmt.Sprintf("%s--%s", seedNamespace, shootUID)
-}
-
-// ExtractShootDetailsFromBackupEntryName returns Shoot resource technicalID its UID from provided <backupEntryName>.
-func ExtractShootDetailsFromBackupEntryName(backupEntryName string) (shootTechnicalID, shootUID string) {
-	tokens := strings.Split(backupEntryName, "--")
-	shootUID = tokens[len(tokens)-1]
-	shootTechnicalID = strings.TrimSuffix(backupEntryName, shootUID)
-	shootTechnicalID = strings.TrimSuffix(shootTechnicalID, "--")
-	return shootTechnicalID, shootUID
-}
-
-// ReplaceCloudProviderConfigKey replaces a key with the new value in the given cloud provider config.
-func ReplaceCloudProviderConfigKey(cloudProviderConfig, separator, key, value string) string {
-	keyValueRegexp := regexp.MustCompile(fmt.Sprintf(`(\Q%s\E%s)([^\n]*)`, key, separator))
-	return keyValueRegexp.ReplaceAllString(cloudProviderConfig, fmt.Sprintf(`${1}%q`, strings.Replace(value, `$`, `$$`, -1)))
 }
 
 // DeleteHvpa delete all resources required for the HVPA in the given namespace.
@@ -225,7 +203,11 @@ func DeleteVpa(ctx context.Context, c client.Client, namespace string, isShoot b
 
 // DeleteShootLoggingStack deletes all shoot resource of the logging stack in the given namespace.
 func DeleteShootLoggingStack(ctx context.Context, k8sClient client.Client, namespace string) error {
-	return DeleteLoki(ctx, k8sClient, namespace)
+	if err := DeleteLoki(ctx, k8sClient, namespace); err != nil {
+		return err
+	}
+
+	return DeleteShootNodeLoggingStack(ctx, k8sClient, namespace)
 }
 
 // DeleteLoki  deletes all resources of the Loki in a given namespace.
@@ -241,12 +223,19 @@ func DeleteLoki(ctx context.Context, k8sClient client.Client, namespace string) 
 		&corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "loki-loki-0", Namespace: namespace}},
 	}
 
-	for _, resource := range resources {
-		if err := k8sClient.Delete(ctx, resource); client.IgnoreNotFound(err) != nil && !meta.IsNoMatchError(err) {
-			return err
-		}
+	return kutil.DeleteObjects(ctx, k8sClient, resources...)
+}
+
+// DeleteShootNodeLoggingStack deletes all shoot resource of the shoot-node logging stack in the given namespace.
+func DeleteShootNodeLoggingStack(ctx context.Context, k8sClient client.Client, namespace string) error {
+	resources := []client.Object{
+		&extensionsv1beta1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "loki", Namespace: namespace}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: logging.SecretNameLokiKubeRBACProxyKubeconfig, Namespace: namespace}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: LokiTLS, Namespace: namespace}},
+		&networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "allow-from-prometheus-to-loki-telegraf", Namespace: namespace}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "telegraf-config", Namespace: namespace}},
 	}
-	return nil
+	return kutil.DeleteObjects(ctx, k8sClient, resources...)
 }
 
 // DeleteSeedLoggingStack deletes all seed resource of the logging stack in the garden namespace.
@@ -264,10 +253,8 @@ func DeleteSeedLoggingStack(ctx context.Context, k8sClient client.Client) error 
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "fluent-bit", Namespace: v1beta1constants.GardenNamespace}},
 	}
 
-	for _, resource := range resources {
-		if err := k8sClient.Delete(ctx, resource); client.IgnoreNotFound(err) != nil && !meta.IsNoMatchError(err) {
-			return err
-		}
+	if err := kutil.DeleteObjects(ctx, k8sClient, resources...); err != nil {
+		return err
 	}
 
 	return DeleteLoki(ctx, k8sClient, v1beta1constants.GardenNamespace)

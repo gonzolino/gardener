@@ -185,7 +185,7 @@ var _ = Describe("CloudProfile Validation Tests ", func() {
 					Spec: core.CloudProfileSpec{
 						Type: "unknown",
 						SeedSelector: &core.SeedSelector{
-							LabelSelector: &metav1.LabelSelector{
+							LabelSelector: metav1.LabelSelector{
 								MatchLabels: map[string]string{"foo": "bar"},
 							},
 						},
@@ -274,7 +274,7 @@ var _ = Describe("CloudProfile Validation Tests ", func() {
 			})
 
 			It("should forbid ca bundles with unsupported format", func() {
-				cloudProfile.Spec.CABundle = pointer.StringPtr("unsupported")
+				cloudProfile.Spec.CABundle = pointer.String("unsupported")
 
 				errorList := ValidateCloudProfile(cloudProfile)
 

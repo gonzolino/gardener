@@ -21,8 +21,10 @@ import (
 
 	"github.com/gardener/gardener/pkg/apis/core"
 	gardencore "github.com/gardener/gardener/pkg/apis/core"
+	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	corefake "github.com/gardener/gardener/pkg/client/core/clientset/internalversion/fake"
+	externalcoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
 	coreinformers "github.com/gardener/gardener/pkg/client/core/informers/internalversion"
 	. "github.com/gardener/gardener/plugin/pkg/global/resourcereferencemanager"
 
@@ -59,14 +61,15 @@ func (fakeAuthorizerType) Authorize(_ context.Context, a authorizer.Attributes) 
 var _ = Describe("resourcereferencemanager", func() {
 	Describe("#Admit", func() {
 		var (
-			admissionHandler          *ReferenceManager
-			kubeInformerFactory       kubeinformers.SharedInformerFactory
-			kubeClient                *fake.Clientset
-			gardenCoreClient          *corefake.Clientset
-			gardenCoreInformerFactory coreinformers.SharedInformerFactory
-			fakeAuthorizer            fakeAuthorizerType
-			scheme                    *runtime.Scheme
-			dynamicClient             *dynamicfake.FakeDynamicClient
+			admissionHandler                  *ReferenceManager
+			kubeInformerFactory               kubeinformers.SharedInformerFactory
+			kubeClient                        *fake.Clientset
+			gardenCoreClient                  *corefake.Clientset
+			gardenCoreInformerFactory         coreinformers.SharedInformerFactory
+			gardenCoreExternalInformerFactory externalcoreinformers.SharedInformerFactory
+			fakeAuthorizer                    fakeAuthorizerType
+			scheme                            *runtime.Scheme
+			dynamicClient                     *dynamicfake.FakeDynamicClient
 
 			shoot core.Shoot
 
@@ -262,6 +265,9 @@ var _ = Describe("resourcereferencemanager", func() {
 
 			gardenCoreInformerFactory = coreinformers.NewSharedInformerFactory(nil, 0)
 			admissionHandler.SetInternalCoreInformerFactory(gardenCoreInformerFactory)
+
+			gardenCoreExternalInformerFactory = externalcoreinformers.NewSharedInformerFactory(nil, 0)
+			admissionHandler.SetExternalCoreInformerFactory(gardenCoreExternalInformerFactory)
 
 			fakeAuthorizer = fakeAuthorizerType{}
 			admissionHandler.SetAuthorizer(fakeAuthorizer)
@@ -695,6 +701,40 @@ var _ = Describe("resourcereferencemanager", func() {
 				Expect(err).To(HaveOccurred())
 			})
 
+			Context("exposure class reference", func() {
+				var exposureClassName = "test-exposureclass"
+
+				BeforeEach(func() {
+					Expect(gardenCoreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+					Expect(gardenCoreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+					Expect(gardenCoreInformerFactory.Core().InternalVersion().SecretBindings().Informer().GetStore().Add(&secretBinding)).To(Succeed())
+					Expect(kubeInformerFactory.Core().V1().ConfigMaps().Informer().GetStore().Add(&configMap)).To(Succeed())
+
+					shoot.Spec.ExposureClassName = &exposureClassName
+				})
+
+				It("should reject because the referenced exposure class does not exists", func() {
+					attrs := admission.NewAttributesRecord(&shoot, nil, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, defaultUserInfo)
+
+					err := admissionHandler.Admit(context.TODO(), attrs, nil)
+					Expect(err).To(HaveOccurred())
+				})
+
+				It("should accept because the referenced exposure class exists", func() {
+					var exposureClass = gardencorev1alpha1.ExposureClass{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: exposureClassName,
+						},
+					}
+
+					Expect(gardenCoreExternalInformerFactory.Core().V1alpha1().ExposureClasses().Informer().GetStore().Add(&exposureClass)).To(Succeed())
+					attrs := admission.NewAttributesRecord(&shoot, nil, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, defaultUserInfo)
+
+					err := admissionHandler.Admit(context.TODO(), attrs, nil)
+					Expect(err).To(HaveOccurred())
+				})
+			})
+
 			It("should reject because the referenced config map does not exist", func() {
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
@@ -788,7 +828,7 @@ var _ = Describe("resourcereferencemanager", func() {
 
 				shoot.Spec.DNS = &core.DNS{
 					Providers: []core.DNSProvider{
-						{SecretName: pointer.StringPtr("foo")},
+						{SecretName: pointer.String("foo")},
 					},
 				}
 
@@ -814,7 +854,7 @@ var _ = Describe("resourcereferencemanager", func() {
 
 				shoot.Spec.DNS = &core.DNS{
 					Providers: []core.DNSProvider{
-						{SecretName: pointer.StringPtr("foo")},
+						{SecretName: pointer.String("foo")},
 					},
 				}
 
@@ -840,7 +880,7 @@ var _ = Describe("resourcereferencemanager", func() {
 
 				shoot.Spec.DNS = &core.DNS{
 					Providers: []core.DNSProvider{
-						{SecretName: pointer.StringPtr("foo")},
+						{SecretName: pointer.String("foo")},
 					},
 				}
 
@@ -867,7 +907,7 @@ var _ = Describe("resourcereferencemanager", func() {
 
 				shoot.Spec.DNS = &core.DNS{
 					Providers: []core.DNSProvider{
-						{SecretName: pointer.StringPtr("foo")},
+						{SecretName: pointer.String("foo")},
 					},
 				}
 
@@ -967,10 +1007,10 @@ var _ = Describe("resourcereferencemanager", func() {
 			})
 
 			It("should allow specifying a namespace which is not in use (create)", func() {
-				project.Spec.Namespace = pointer.StringPtr("garden-foo")
+				project.Spec.Namespace = pointer.String("garden-foo")
 				projectCopy := project.DeepCopy()
 				projectCopy.Name = "project-2"
-				projectCopy.Spec.Namespace = pointer.StringPtr("garden-bar")
+				projectCopy.Spec.Namespace = pointer.String("garden-bar")
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(projectCopy)).To(Succeed())
 
 				attrs := admission.NewAttributesRecord(&project, nil, core.Kind("Project").WithVersion("version"), project.Namespace, project.Name, core.Resource("projects").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, defaultUserInfo)
@@ -983,9 +1023,9 @@ var _ = Describe("resourcereferencemanager", func() {
 			It("should allow specifying a namespace which is not in use (update)", func() {
 				projectOld := project.DeepCopy()
 				projectCopy := project.DeepCopy()
-				project.Spec.Namespace = pointer.StringPtr("garden-foo")
+				project.Spec.Namespace = pointer.String("garden-foo")
 				projectCopy.Name = "project-2"
-				projectCopy.Spec.Namespace = pointer.StringPtr("garden-bar")
+				projectCopy.Spec.Namespace = pointer.String("garden-bar")
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(projectOld)).To(Succeed())
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(projectCopy)).To(Succeed())
 
@@ -1009,7 +1049,7 @@ var _ = Describe("resourcereferencemanager", func() {
 			})
 
 			It("should forbid specifying a namespace which is already used by another project (create)", func() {
-				project.Spec.Namespace = pointer.StringPtr("garden-foo")
+				project.Spec.Namespace = pointer.String("garden-foo")
 				projectCopy := project.DeepCopy()
 				projectCopy.Name = "project-2"
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(projectCopy)).To(Succeed())
@@ -1028,7 +1068,7 @@ var _ = Describe("resourcereferencemanager", func() {
 
 			It("should forbid specifying a namespace which is already used by another project (update)", func() {
 				projectOld := project.DeepCopy()
-				project.Spec.Namespace = pointer.StringPtr("garden-foo")
+				project.Spec.Namespace = pointer.String("garden-foo")
 				projectCopy := project.DeepCopy()
 				projectCopy.Name = "project-2"
 				Expect(gardenCoreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(projectOld)).To(Succeed())
@@ -1123,6 +1163,30 @@ var _ = Describe("resourcereferencemanager", func() {
 
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("1.17.1"))
+			})
+
+			It("should accept removal of kubernetes version that is still in use by a shoot that is being deleted", func() {
+				t := metav1.Now()
+				shootTwoDeleted := shootTwo
+				shootTwoDeleted.DeletionTimestamp = &t
+
+				Expect(gardenCoreInformerFactory.Core().InternalVersion().Shoots().Informer().GetStore().Add(&shootOne)).To(Succeed())
+				Expect(gardenCoreInformerFactory.Core().InternalVersion().Shoots().Informer().GetStore().Add(&shootTwoDeleted)).To(Succeed())
+
+				cloudProfileNew := cloudProfile
+				cloudProfileNew.Spec = core.CloudProfileSpec{
+					Kubernetes: core.KubernetesSettings{
+						Versions: []core.ExpirableVersion{
+							{Version: "1.17.2"},
+						},
+					},
+				}
+
+				attrs := admission.NewAttributesRecord(&cloudProfileNew, &cloudProfile, core.Kind("CloudProfile").WithVersion("version"), "", cloudProfile.Name, core.Resource("CloudProfile").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, defaultUserInfo)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).NotTo(HaveOccurred())
 			})
 		})
 
@@ -1310,6 +1374,54 @@ var _ = Describe("resourcereferencemanager", func() {
 				Expect(err.Error()).To(ContainSubstring("1.17.1"))
 				Expect(err.Error()).To(ContainSubstring(shootTwo.Spec.Provider.Workers[0].Machine.Image.Name))
 				Expect(err.Error()).To(ContainSubstring(shootTwo.Spec.Provider.Workers[1].Machine.Image.Name))
+			})
+
+			It("should accept removal of a machine image version that is in use by a shoot that is being deleted", func() {
+				t := metav1.Now()
+				shootTwoDeleted := shootTwo
+				shootTwoDeleted.DeletionTimestamp = &t
+
+				Expect(gardenCoreInformerFactory.Core().InternalVersion().Shoots().Informer().GetStore().Add(&shootOne)).To(Succeed())
+				Expect(gardenCoreInformerFactory.Core().InternalVersion().Shoots().Informer().GetStore().Add(&shootTwoDeleted)).To(Succeed())
+
+				newVersions := []core.MachineImageVersion{
+					{
+						ExpirableVersion: core.ExpirableVersion{
+							Version: "1.17.3",
+						},
+					},
+					{
+						ExpirableVersion: core.ExpirableVersion{
+							Version: "1.17.0",
+						},
+					},
+					{
+						ExpirableVersion: core.ExpirableVersion{
+							Version: "1.16.0",
+						},
+					},
+				}
+
+				// new cloud profile has version 1.17.1 removed.
+				cloudProfileNew := cloudProfile
+				cloudProfileNew.Spec = core.CloudProfileSpec{
+					MachineImages: []core.MachineImage{
+						{
+							Name:     "coreos",
+							Versions: newVersions,
+						},
+						{
+							Name:     "ubuntu",
+							Versions: newVersions,
+						},
+					},
+				}
+
+				attrs := admission.NewAttributesRecord(&cloudProfileNew, &cloudProfile, core.Kind("CloudProfile").WithVersion("version"), "", cloudProfile.Name, core.Resource("CloudProfile").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, defaultUserInfo)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).NotTo(HaveOccurred())
 			})
 
 			// for existing Gardener installations

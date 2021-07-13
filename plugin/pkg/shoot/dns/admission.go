@@ -28,7 +28,7 @@ import (
 	admissioninitializer "github.com/gardener/gardener/pkg/apiserver/admission/initializer"
 	coreinformers "github.com/gardener/gardener/pkg/client/core/informers/internalversion"
 	corelisters "github.com/gardener/gardener/pkg/client/core/listers/core/internalversion"
-	gardenerutils "github.com/gardener/gardener/pkg/utils"
+	"github.com/gardener/gardener/pkg/utils"
 	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -175,7 +175,7 @@ func (d *DNS) Admit(ctx context.Context, a admission.Attributes, o admission.Obj
 				// Since it was possible to apply shoots w/o a primary provider before, we have to re-add it here.
 				for i, provider := range shoot.Spec.DNS.Providers {
 					if reflect.DeepEqual(provider.Type, oldPrimaryProvider.Type) && reflect.DeepEqual(provider.SecretName, oldPrimaryProvider.SecretName) {
-						shoot.Spec.DNS.Providers[i].Primary = pointer.BoolPtr(true)
+						shoot.Spec.DNS.Providers[i].Primary = pointer.Bool(true)
 						break
 					}
 				}
@@ -239,7 +239,7 @@ func (d *DNS) Admit(ctx context.Context, a admission.Attributes, o admission.Obj
 // checkFunctionlessDNSProviders returns an error if a non-primary provider isn't configured correctly.
 func checkFunctionlessDNSProviders(dns *core.DNS) error {
 	for _, provider := range dns.Providers {
-		if !gardenerutils.IsTrue(provider.Primary) && (provider.Type == nil || provider.SecretName == nil) {
+		if !utils.IsTrue(provider.Primary) && (provider.Type == nil || provider.SecretName == nil) {
 			return apierrors.NewBadRequest("non-primary DNS providers in .spec.dns.providers must specify a `type` and `secretName`")
 		}
 	}
@@ -299,7 +299,7 @@ func setPrimaryDNSProvider(dns *core.DNS, defaultDomains []string) error {
 
 	primary := helper.FindPrimaryDNSProvider(dns.Providers)
 	if primary == nil && len(dns.Providers) > 0 {
-		dns.Providers[0].Primary = pointer.BoolPtr(true)
+		dns.Providers[0].Primary = pointer.Bool(true)
 	}
 	return nil
 }
@@ -351,7 +351,7 @@ func assignDefaultDomainIfNeeded(shoot *core.Shoot, projectLister corelisters.Pr
 			}
 			shootDNSName := shoot.Name
 			if len(shoot.Name) == 0 && len(shoot.GenerateName) > 0 {
-				shootDNSName, err = gardenerutils.GenerateRandomStringFromCharset(len(shoot.GenerateName)+5, "0123456789abcdefghijklmnopqrstuvwxyz")
+				shootDNSName, err = utils.GenerateRandomStringFromCharset(len(shoot.GenerateName)+5, "0123456789abcdefghijklmnopqrstuvwxyz")
 				if err != nil {
 					return apierrors.NewInternalError(err)
 				}
@@ -377,7 +377,7 @@ func getDefaultDomains(secretLister kubecorev1listers.SecretLister) ([]string, e
 
 	var defaultDomains []string
 	for _, domainSecret := range domainSecrets {
-		_, domain, _, _, err := gutil.GetDomainInfoFromAnnotations(domainSecret.GetAnnotations())
+		_, domain, _, _, _, err := gutil.GetDomainInfoFromAnnotations(domainSecret.GetAnnotations())
 		if err != nil {
 			return nil, err
 		}

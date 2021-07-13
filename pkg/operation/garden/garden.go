@@ -23,7 +23,9 @@ import (
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorelisters "github.com/gardener/gardener/pkg/client/core/listers/core/v1beta1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/logger"
+	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/utils"
 	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	secretutils "github.com/gardener/gardener/pkg/utils/secrets"
@@ -34,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // NewBuilder returns a new Builder.
@@ -56,7 +57,8 @@ func (b *Builder) WithProject(project *gardencorev1beta1.Project) *Builder {
 // WithProjectFromReader sets the projectFunc attribute after fetching it from the lister.
 func (b *Builder) WithProjectFromReader(reader client.Reader, namespace string) *Builder {
 	b.projectFunc = func(ctx context.Context) (*gardencorev1beta1.Project, error) {
-		return gutil.ProjectForNamespaceFromReader(ctx, reader, namespace)
+		project, _, err := gutil.ProjectAndNamespaceFromReader(ctx, reader, namespace)
+		return project, err
 	}
 	return b
 }
@@ -140,7 +142,7 @@ func GetInternalDomain(secrets map[string]*corev1.Secret) (*Domain, error) {
 }
 
 func constructDomainFromSecret(secret *corev1.Secret) (*Domain, error) {
-	provider, domain, includeZones, excludeZones, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
+	provider, domain, zone, includeZones, excludeZones, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +150,7 @@ func constructDomainFromSecret(secret *corev1.Secret) (*Domain, error) {
 	return &Domain{
 		Domain:       domain,
 		Provider:     provider,
+		Zone:         zone,
 		SecretData:   secret.Data,
 		IncludeZones: includeZones,
 		ExcludeZones: excludeZones,
@@ -237,7 +240,7 @@ func readGardenSecretsFromCache(ctx context.Context, secretLister listSecretsFun
 		// Retrieving default domain secrets based on all secrets in the Garden namespace which have
 		// a label indicating the Garden role default-domain.
 		if secret.Labels[v1beta1constants.GardenRole] == v1beta1constants.GardenRoleDefaultDomain {
-			_, domain, _, _, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
+			_, domain, _, _, _, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
 			if err != nil {
 				logger.Logger.Warnf("error getting information out of default domain secret %s: %+v", secret.Name, err)
 				continue
@@ -250,7 +253,7 @@ func readGardenSecretsFromCache(ctx context.Context, secretLister listSecretsFun
 		// Retrieving internal domain secrets based on all secrets in the Garden namespace which have
 		// a label indicating the Garden role internal-domain.
 		if secret.Labels[v1beta1constants.GardenRole] == v1beta1constants.GardenRoleInternalDomain {
-			_, domain, _, _, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
+			_, domain, _, _, _, err := gutil.GetDomainInfoFromAnnotations(secret.Annotations)
 			if err != nil {
 				logger.Logger.Warnf("error getting information out of internal domain secret %s: %+v", secret.Name, err)
 				continue
@@ -372,7 +375,7 @@ func BootstrapCluster(ctx context.Context, k8sGardenClient kubernetes.Interface)
 
 func generateMonitoringSecret(ctx context.Context, k8sGardenClient kubernetes.Interface) (*corev1.Secret, error) {
 	basicAuthSecret := &secretutils.BasicAuthSecretConfig{
-		Name:   "monitoring-ingress-credentials",
+		Name:   common.MonitoringIngressCredentials,
 		Format: secretutils.BasicAuthFormatNormal,
 
 		Username:       "admin",
@@ -389,7 +392,7 @@ func generateMonitoringSecret(ctx context.Context, k8sGardenClient kubernetes.In
 			Namespace: v1beta1constants.GardenNamespace,
 		},
 	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, k8sGardenClient.Client(), secret, func() error {
+	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k8sGardenClient.Client(), secret, func() error {
 		secret.Labels = map[string]string{
 			v1beta1constants.GardenRole: v1beta1constants.GardenRoleGlobalMonitoring,
 		}

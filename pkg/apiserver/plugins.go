@@ -21,10 +21,13 @@ import (
 	"github.com/gardener/gardener/plugin/pkg/global/deletionconfirmation"
 	"github.com/gardener/gardener/plugin/pkg/global/extensionvalidation"
 	"github.com/gardener/gardener/plugin/pkg/global/resourcereferencemanager"
+	managedseedshoot "github.com/gardener/gardener/plugin/pkg/managedseed/shoot"
 	managedseedvalidator "github.com/gardener/gardener/plugin/pkg/managedseed/validator"
 	plantvalidator "github.com/gardener/gardener/plugin/pkg/plant"
+	projectvalidator "github.com/gardener/gardener/plugin/pkg/project/validator"
 	seedvalidator "github.com/gardener/gardener/plugin/pkg/seed/validator"
 	shootdns "github.com/gardener/gardener/plugin/pkg/shoot/dns"
+	shootexposureclass "github.com/gardener/gardener/plugin/pkg/shoot/exposureclass"
 	shootmanagedseed "github.com/gardener/gardener/plugin/pkg/shoot/managedseed"
 	"github.com/gardener/gardener/plugin/pkg/shoot/oidc/clusteropenidconnectpreset"
 	"github.com/gardener/gardener/plugin/pkg/shoot/oidc/openidconnectpreset"
@@ -32,7 +35,6 @@ import (
 	shoottolerationrestriction "github.com/gardener/gardener/plugin/pkg/shoot/tolerationrestriction"
 	shootvalidator "github.com/gardener/gardener/plugin/pkg/shoot/validator"
 	shootvpa "github.com/gardener/gardener/plugin/pkg/shoot/vpa"
-	shootstatedeletionvalidator "github.com/gardener/gardener/plugin/pkg/shootstate/validator"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
@@ -49,6 +51,7 @@ var (
 		resourcereferencemanager.PluginName,        // ResourceReferenceManager
 		extensionvalidation.PluginName,             // ExtensionValidator
 		shoottolerationrestriction.PluginName,      // ShootTolerationRestriction
+		shootexposureclass.PluginName,              // ShootExposureClass
 		shootdns.PluginName,                        // ShootDNS
 		shootmanagedseed.PluginName,                // ShootManagedSeed
 		shootquotavalidator.PluginName,             // ShootQuotaValidator
@@ -56,13 +59,14 @@ var (
 		seedvalidator.PluginName,                   // SeedValidator
 		controllerregistrationresources.PluginName, // ControllerRegistrationResources
 		plantvalidator.PluginName,                  // PlantValidator
+		projectvalidator.PluginName,                // ProjectValidator
 		deletionconfirmation.PluginName,            // DeletionConfirmation
 		openidconnectpreset.PluginName,             // OpenIDConnectPreset
 		clusteropenidconnectpreset.PluginName,      // ClusterOpenIDConnectPreset
-		shootstatedeletionvalidator.PluginName,     // ShootStateDeletionValidator
 		customverbauthorizer.PluginName,            // CustomVerbAuthorizer
 		shootvpa.PluginName,                        // ShootVPAEnabledByDefault
 		managedseedvalidator.PluginName,            // ManagedSeed
+		managedseedshoot.PluginName,                // ManagedSeedShoot
 		bastionvalidator.PluginName,                // Bastion
 
 		// new admission plugins should generally be inserted above here
@@ -82,6 +86,7 @@ var (
 		resourcereferencemanager.PluginName,        // ResourceReferenceManager
 		extensionvalidation.PluginName,             // ExtensionValidator
 		shoottolerationrestriction.PluginName,      // ShootTolerationRestriction
+		shootexposureclass.PluginName,              // ShootExposureClass
 		shootdns.PluginName,                        // ShootDNS
 		shootmanagedseed.PluginName,                // ShootManagedSeed
 		shootquotavalidator.PluginName,             // ShootQuotaValidator
@@ -89,12 +94,13 @@ var (
 		seedvalidator.PluginName,                   // SeedValidator
 		controllerregistrationresources.PluginName, // ControllerRegistrationResources
 		plantvalidator.PluginName,                  // PlantValidator
+		projectvalidator.PluginName,                // ProjectValidator
 		deletionconfirmation.PluginName,            // DeletionConfirmation
 		openidconnectpreset.PluginName,             // OpenIDConnectPreset
 		clusteropenidconnectpreset.PluginName,      // ClusterOpenIDConnectPreset
-		shootstatedeletionvalidator.PluginName,     // ShootStateDeletionValidator
 		customverbauthorizer.PluginName,            // CustomVerbAuthorizer
 		managedseedvalidator.PluginName,            // ManagedSeed
+		managedseedshoot.PluginName,                // ManagedSeedShoot
 		bastionvalidator.PluginName,                // Bastion
 		mutatingwebhook.PluginName,                 // MutatingAdmissionWebhook
 		validatingwebhook.PluginName,               // ValidatingAdmissionWebhook
@@ -111,6 +117,7 @@ func RegisterAllAdmissionPlugins(plugins *admission.Plugins) {
 	deletionconfirmation.Register(plugins)
 	extensionvalidation.Register(plugins)
 	shoottolerationrestriction.Register(plugins)
+	shootexposureclass.Register(plugins)
 	shootquotavalidator.Register(plugins)
 	shootdns.Register(plugins)
 	shootmanagedseed.Register(plugins)
@@ -118,11 +125,12 @@ func RegisterAllAdmissionPlugins(plugins *admission.Plugins) {
 	seedvalidator.Register(plugins)
 	controllerregistrationresources.Register(plugins)
 	plantvalidator.Register(plugins)
+	projectvalidator.Register(plugins)
 	openidconnectpreset.Register(plugins)
 	clusteropenidconnectpreset.Register(plugins)
-	shootstatedeletionvalidator.Register(plugins)
 	customverbauthorizer.Register(plugins)
 	managedseedvalidator.Register(plugins)
+	managedseedshoot.Register(plugins)
 	bastionvalidator.Register(plugins)
 	resourcequota.Register(plugins)
 	shootvpa.Register(plugins)

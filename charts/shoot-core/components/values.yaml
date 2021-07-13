@@ -15,11 +15,6 @@ apiserver-proxy:
     port: 8443
 coredns:
   enabled: true
-konnectivity-agent:
-  enabled: false
-  podAnnotations: {}
-  images:
-    konnectivity-agent: image-repository:image-tag
 kube-apiserver-kubelet:
   enabled: true
 kube-proxy:
@@ -67,8 +62,6 @@ vpn-shoot:
     vpn-shoot: image-repository:image-tag
 vertical-pod-autoscaler:
   enabled: false
-# cluster-identity:
-#   clusterIdentity: shoot-namesapce-shoot-ui-garden-cluster-identity
 node-local-dns:
   enabled: false
   podAnnotations: {}

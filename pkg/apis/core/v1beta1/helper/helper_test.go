@@ -392,78 +392,78 @@ var _ = Describe("helper", func() {
 				false,
 			),
 			Entry("taints with keys+values only, tolerations with keys+values only (tolerated)",
-				[]gardencorev1beta1.SeedTaint{{Key: "foo", Value: pointer.StringPtr("bar")}},
-				[]gardencorev1beta1.Toleration{{Key: "foo", Value: pointer.StringPtr("bar")}},
+				[]gardencorev1beta1.SeedTaint{{Key: "foo", Value: pointer.String("bar")}},
+				[]gardencorev1beta1.Toleration{{Key: "foo", Value: pointer.String("bar")}},
 				true,
 			),
 			Entry("taints with keys+values only, tolerations with keys+values only (non-tolerated)",
-				[]gardencorev1beta1.SeedTaint{{Key: "foo", Value: pointer.StringPtr("bar")}},
-				[]gardencorev1beta1.Toleration{{Key: "bar", Value: pointer.StringPtr("foo")}},
+				[]gardencorev1beta1.SeedTaint{{Key: "foo", Value: pointer.String("bar")}},
+				[]gardencorev1beta1.Toleration{{Key: "bar", Value: pointer.String("foo")}},
 				false,
 			),
 			Entry("taints with mixed key(+values), tolerations with mixed key(+values) (tolerated)",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				true,
 			),
 			Entry("taints with mixed key(+values), tolerations with mixed key(+values) (non-tolerated)",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
 					{Key: "bar"},
-					{Key: "foo", Value: pointer.StringPtr("baz")},
+					{Key: "foo", Value: pointer.String("baz")},
 				},
 				false,
 			),
 			Entry("taints with mixed key(+values), tolerations with key+values only (tolerated)",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
-					{Key: "foo", Value: pointer.StringPtr("bar")},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "foo", Value: pointer.String("bar")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				true,
 			),
 			Entry("taints with mixed key(+values), tolerations with key+values only (untolerated)",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
-					{Key: "foo", Value: pointer.StringPtr("bar")},
-					{Key: "bar", Value: pointer.StringPtr("foo")},
+					{Key: "foo", Value: pointer.String("bar")},
+					{Key: "bar", Value: pointer.String("foo")},
 				},
 				false,
 			),
 			Entry("taints > tolerations",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				false,
 			),
 			Entry("tolerations > taints",
 				[]gardencorev1beta1.SeedTaint{
 					{Key: "foo"},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
+					{Key: "bar", Value: pointer.String("baz")},
 				},
 				[]gardencorev1beta1.Toleration{
-					{Key: "foo", Value: pointer.StringPtr("bar")},
-					{Key: "bar", Value: pointer.StringPtr("baz")},
-					{Key: "baz", Value: pointer.StringPtr("foo")},
+					{Key: "foo", Value: pointer.String("bar")},
+					{Key: "bar", Value: pointer.String("baz")},
+					{Key: "baz", Value: pointer.String("foo")},
 				},
 				true,
 			),
@@ -935,35 +935,35 @@ var _ = Describe("helper", func() {
 
 		Entry("no providers", nil, BeNil()),
 		Entry("one non primary provider", []gardencorev1beta1.DNSProvider{
-			{Type: pointer.StringPtr("provider")},
+			{Type: pointer.String("provider")},
 		}, BeNil()),
-		Entry("one primary provider", []gardencorev1beta1.DNSProvider{{Type: pointer.StringPtr("provider"),
-			Primary: pointer.BoolPtr(true)}}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.StringPtr("provider"), Primary: pointer.BoolPtr(true)})),
+		Entry("one primary provider", []gardencorev1beta1.DNSProvider{{Type: pointer.String("provider"),
+			Primary: pointer.Bool(true)}}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.String("provider"), Primary: pointer.Bool(true)})),
 		Entry("multiple w/ one primary provider", []gardencorev1beta1.DNSProvider{
 			{
-				Type: pointer.StringPtr("provider2"),
+				Type: pointer.String("provider2"),
 			},
 			{
-				Type:    pointer.StringPtr("provider1"),
-				Primary: pointer.BoolPtr(true),
+				Type:    pointer.String("provider1"),
+				Primary: pointer.Bool(true),
 			},
 			{
-				Type: pointer.StringPtr("provider3"),
+				Type: pointer.String("provider3"),
 			},
-		}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.StringPtr("provider1"), Primary: pointer.BoolPtr(true)})),
+		}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.String("provider1"), Primary: pointer.Bool(true)})),
 		Entry("multiple w/ multiple primary providers", []gardencorev1beta1.DNSProvider{
 			{
-				Type:    pointer.StringPtr("provider1"),
-				Primary: pointer.BoolPtr(true),
+				Type:    pointer.String("provider1"),
+				Primary: pointer.Bool(true),
 			},
 			{
-				Type:    pointer.StringPtr("provider2"),
-				Primary: pointer.BoolPtr(true),
+				Type:    pointer.String("provider2"),
+				Primary: pointer.Bool(true),
 			},
 			{
-				Type: pointer.StringPtr("provider3"),
+				Type: pointer.String("provider3"),
 			},
-		}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.StringPtr("provider1"), Primary: pointer.BoolPtr(true)})),
+		}, Equal(&gardencorev1beta1.DNSProvider{Type: pointer.String("provider1"), Primary: pointer.Bool(true)})),
 	)
 
 	Describe("#ShootMachineImageVersionExists", func() {
@@ -991,7 +991,7 @@ var _ = Describe("helper", func() {
 
 			shootMachineImage = gardencorev1beta1.ShootMachineImage{
 				Name:    "coreos",
-				Version: pointer.StringPtr("0.0.2"),
+				Version: pointer.String("0.0.2"),
 			}
 		})
 
@@ -1008,7 +1008,7 @@ var _ = Describe("helper", func() {
 		})
 
 		It("should determine that the version does not exist", func() {
-			shootMachineImage.Version = pointer.StringPtr("0.0.4")
+			shootMachineImage.Version = pointer.String("0.0.4")
 			exists, _ := ShootMachineImageVersionExists(constraint, shootMachineImage)
 			Expect(exists).To(Equal(false))
 		})
@@ -1016,6 +1016,8 @@ var _ = Describe("helper", func() {
 
 	Describe("Version helper", func() {
 		var previewClassification = gardencorev1beta1.ClassificationPreview
+		var deprecatedClassification = gardencorev1beta1.ClassificationDeprecated
+		var supportedClassification = gardencorev1beta1.ClassificationSupported
 
 		DescribeTable("#GetLatestQualifyingShootMachineImage",
 			func(original gardencorev1beta1.MachineImage, expectVersionToBeFound bool, expected *gardencorev1beta1.ShootMachineImage, expectError bool) {
@@ -1057,7 +1059,7 @@ var _ = Describe("helper", func() {
 				true,
 				&gardencorev1beta1.ShootMachineImage{
 					Name:    "gardenlinux",
-					Version: pointer.StringPtr("1.17.1"),
+					Version: pointer.String("1.17.1"),
 				},
 				false,
 			),
@@ -1093,6 +1095,98 @@ var _ = Describe("helper", func() {
 				},
 				false,
 				nil,
+				false,
+			),
+			Entry("Expect older but supported version to be preferred over newer but deprecated one",
+				gardencorev1beta1.MachineImage{
+					Name: "gardenlinux",
+					Versions: []gardencorev1beta1.MachineImageVersion{
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.17.1",
+								Classification: &deprecatedClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.16.1",
+								Classification: &supportedClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.15.0",
+								Classification: &previewClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.14.3",
+								ExpirationDate: &expirationDateInThePast,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.13.1",
+								ExpirationDate: &expirationDateInThePast,
+							},
+						},
+					},
+				},
+				true,
+				&gardencorev1beta1.ShootMachineImage{
+					Name:    "gardenlinux",
+					Version: pointer.String("1.16.1"),
+				},
+				false,
+			),
+			Entry("Expect latest deprecated version to be selected when there is no supported version",
+				gardencorev1beta1.MachineImage{
+					Name: "gardenlinux",
+					Versions: []gardencorev1beta1.MachineImageVersion{
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.17.3",
+								Classification: &previewClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.17.2",
+								ExpirationDate: &expirationDateInThePast,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.17.1",
+								Classification: &deprecatedClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.16.1",
+								Classification: &deprecatedClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.15.0",
+								Classification: &previewClassification,
+							},
+						},
+						{
+							ExpirableVersion: gardencorev1beta1.ExpirableVersion{
+								Version:        "1.14.3",
+								ExpirationDate: &expirationDateInThePast,
+							},
+						},
+					},
+				},
+				true,
+				&gardencorev1beta1.ShootMachineImage{
+					Name:    "gardenlinux",
+					Version: pointer.String("1.17.1"),
+				},
 				false,
 			),
 		)
@@ -1471,6 +1565,35 @@ var _ = Describe("helper", func() {
 					false,
 					false,
 				),
+				// #FilterDeprecatedVersion
+				Entry("Should filter version - version is deprecated",
+					FilterDeprecatedVersion(),
+					nil,
+					gardencorev1beta1.ExpirableVersion{Classification: &deprecatedClassification},
+					true,
+					false,
+				),
+				Entry("Should not filter version - version has preview classification",
+					FilterDeprecatedVersion(),
+					nil,
+					gardencorev1beta1.ExpirableVersion{Classification: &previewClassification},
+					false,
+					false,
+				),
+				Entry("Should not filter version - version has supported classification",
+					FilterDeprecatedVersion(),
+					nil,
+					gardencorev1beta1.ExpirableVersion{Classification: &supportedClassification},
+					false,
+					false,
+				),
+				Entry("Should not filter version - version has no classification",
+					FilterDeprecatedVersion(),
+					nil,
+					gardencorev1beta1.ExpirableVersion{},
+					false,
+					false,
+				),
 				// #FilterLowerVersion
 				Entry("Should filter version - version is lower",
 					FilterLowerVersion(*semver.MustParse("1.1.1")),
@@ -1498,27 +1621,27 @@ var _ = Describe("helper", func() {
 				"insert",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("bar")},
 				},
-				gardencorev1beta1.LastError{TaskID: pointer.StringPtr("foo"), Description: "error"},
+				gardencorev1beta1.LastError{TaskID: pointer.String("foo"), Description: "error"},
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("bar")},
-					{TaskID: pointer.StringPtr("foo"), Description: "error"},
+					{TaskID: pointer.String("bar")},
+					{TaskID: pointer.String("foo"), Description: "error"},
 				},
 			),
 			Entry(
 				"update",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("foo"), Description: "error"},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("foo"), Description: "error"},
+					{TaskID: pointer.String("bar")},
 				},
-				gardencorev1beta1.LastError{TaskID: pointer.StringPtr("foo"), Description: "new-error"},
+				gardencorev1beta1.LastError{TaskID: pointer.String("foo"), Description: "new-error"},
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("foo"), Description: "new-error"},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("foo"), Description: "new-error"},
+					{TaskID: pointer.String("bar")},
 				},
 			),
 		)
@@ -1532,25 +1655,25 @@ var _ = Describe("helper", func() {
 				"task id not found",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("bar")},
 				},
 				"foo",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("bar")},
 				},
 			),
 			Entry(
 				"task id found",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("foo")},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("foo")},
+					{TaskID: pointer.String("bar")},
 				},
 				"foo",
 				[]gardencorev1beta1.LastError{
 					{},
-					{TaskID: pointer.StringPtr("bar")},
+					{TaskID: pointer.String("bar")},
 				},
 			),
 		)
@@ -1818,9 +1941,9 @@ var _ = Describe("helper", func() {
 		Entry("both nil", nil, nil, BeTrue()),
 		Entry("old nil, new w/o secret names", nil, &gardencorev1beta1.DNS{}, BeTrue()),
 		Entry("old w/o secret names, new nil", &gardencorev1beta1.DNS{}, nil, BeTrue()),
-		Entry("difference due to old", &gardencorev1beta1.DNS{}, &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.StringPtr("foo")}}}, BeFalse()),
-		Entry("difference due to new", &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.StringPtr("foo")}}}, &gardencorev1beta1.DNS{}, BeFalse()),
-		Entry("equality", &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.StringPtr("foo")}}}, &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.StringPtr("foo")}}}, BeTrue()),
+		Entry("difference due to old", &gardencorev1beta1.DNS{}, &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.String("foo")}}}, BeFalse()),
+		Entry("difference due to new", &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.String("foo")}}}, &gardencorev1beta1.DNS{}, BeFalse()),
+		Entry("equality", &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.String("foo")}}}, &gardencorev1beta1.DNS{Providers: []gardencorev1beta1.DNSProvider{{SecretName: pointer.String("foo")}}}, BeTrue()),
 	)
 
 	DescribeTable("#ShootSecretResourceReferencesEqual",
@@ -1836,5 +1959,17 @@ var _ = Describe("helper", func() {
 		Entry("difference", []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "Secret", Name: "foo"}}}, []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "Secret", Name: "bar"}}}, BeFalse()),
 		Entry("difference because no secret", []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "Secret", Name: "foo"}}}, []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "ConfigMap", Name: "foo"}}}, BeFalse()),
 		Entry("equality", []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "Secret", Name: "foo"}}}, []gardencorev1beta1.NamedResourceReference{{ResourceRef: autoscalingv1.CrossVersionObjectReference{APIVersion: "v1", Kind: "Secret", Name: "foo"}}}, BeTrue()),
+	)
+
+	DescribeTable("#ShootWantsAnonymousAuthentication",
+		func(kubeAPIServerConfig *gardencorev1beta1.KubeAPIServerConfig, wantsAnonymousAuth bool) {
+			actualWantsAnonymousAuth := ShootWantsAnonymousAuthentication(kubeAPIServerConfig)
+			Expect(actualWantsAnonymousAuth).To(Equal(wantsAnonymousAuth))
+		},
+
+		Entry("no kubeapiserver configuration", nil, false),
+		Entry("field not set", &gardencorev1beta1.KubeAPIServerConfig{}, false),
+		Entry("explicitly enabled", &gardencorev1beta1.KubeAPIServerConfig{EnableAnonymousAuthentication: &trueVar}, true),
+		Entry("explicitly disabled", &gardencorev1beta1.KubeAPIServerConfig{EnableAnonymousAuthentication: &falseVar}, false),
 	)
 })

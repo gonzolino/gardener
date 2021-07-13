@@ -98,6 +98,23 @@ webhooks:
   timeoutSeconds: 10
   rules:
   - apiGroups:
+    - ""
+    apiVersions:
+    - "*"
+    operations:
+    - CREATE
+    resources:
+    - secrets
+    - serviceaccounts
+  - apiGroups:
+    - rbac.authorization.k8s.io
+    apiVersions:
+    - "*"
+    operations:
+    - CREATE
+    resources:
+    - clusterrolebindings
+  - apiGroups:
     - coordination.k8s.io
     apiVersions:
     - "*"
@@ -120,9 +137,17 @@ webhooks:
     operations:
     - CREATE
     resources:
-    - backupbuckets
     - backupentries
     - shootstates
+  - apiGroups:
+    - core.gardener.cloud
+    apiVersions:
+    - "*"
+    operations:
+    - CREATE
+    - DELETE
+    resources:
+    - backupbuckets
   - apiGroups:
     - operations.gardener.cloud
     apiVersions:

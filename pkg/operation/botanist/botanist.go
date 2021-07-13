@@ -26,9 +26,11 @@ import (
 	"github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/extensions"
+	"github.com/gardener/gardener/pkg/features"
+	gardenletfeatures "github.com/gardener/gardener/pkg/gardenlet/features"
 	"github.com/gardener/gardener/pkg/operation"
-	"github.com/gardener/gardener/pkg/operation/botanist/component/clusteridentity"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/etcd"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/logging"
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,33 +71,35 @@ func New(ctx context.Context, o *operation.Operation) (*Botanist, error) {
 	}
 
 	// extension components
-	o.Shoot.Components.Extensions.BackupEntry = b.DefaultExtensionsBackupEntry(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.ContainerRuntime = b.DefaultContainerRuntime(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.ControlPlane = b.DefaultControlPlane(b.K8sSeedClient.DirectClient(), extensionsv1alpha1.Normal)
-	o.Shoot.Components.Extensions.ControlPlaneExposure = b.DefaultControlPlane(b.K8sSeedClient.DirectClient(), extensionsv1alpha1.Exposure)
-	o.Shoot.Components.Extensions.DNS.ExternalProvider = b.DefaultExternalDNSProvider(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.ExternalOwner = b.DefaultExternalDNSOwner(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.ExternalEntry = b.DefaultExternalDNSEntry(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.InternalProvider = b.DefaultInternalDNSProvider(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.InternalOwner = b.DefaultInternalDNSOwner(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.InternalEntry = b.DefaultInternalDNSEntry(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.NginxOwner = b.DefaultNginxIngressDNSOwner(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.NginxEntry = b.DefaultNginxIngressDNSEntry(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.DNS.AdditionalProviders, err = b.AdditionalDNSProviders(ctx, b.K8sGardenClient.Client(), b.K8sSeedClient.DirectClient())
+	o.Shoot.Components.Extensions.ContainerRuntime = b.DefaultContainerRuntime()
+	o.Shoot.Components.Extensions.ControlPlane = b.DefaultControlPlane(extensionsv1alpha1.Normal)
+	o.Shoot.Components.Extensions.ControlPlaneExposure = b.DefaultControlPlane(extensionsv1alpha1.Exposure)
+	o.Shoot.Components.Extensions.DNS.ExternalProvider = b.DefaultExternalDNSProvider()
+	o.Shoot.Components.Extensions.DNS.ExternalOwner = b.DefaultExternalDNSOwner()
+	o.Shoot.Components.Extensions.DNS.ExternalEntry = b.DefaultExternalDNSEntry()
+	o.Shoot.Components.Extensions.DNS.InternalProvider = b.DefaultInternalDNSProvider()
+	o.Shoot.Components.Extensions.DNS.InternalOwner = b.DefaultInternalDNSOwner()
+	o.Shoot.Components.Extensions.DNS.InternalEntry = b.DefaultInternalDNSEntry()
+	o.Shoot.Components.Extensions.DNS.NginxOwner = b.DefaultNginxIngressDNSOwner()
+	o.Shoot.Components.Extensions.DNS.NginxEntry = b.DefaultNginxIngressDNSEntry()
+	o.Shoot.Components.Extensions.DNS.AdditionalProviders, err = b.AdditionalDNSProviders(ctx)
+	o.Shoot.Components.Extensions.ExternalDNSRecord = b.DefaultExternalDNSRecord()
+	o.Shoot.Components.Extensions.InternalDNSRecord = b.DefaultInternalDNSRecord()
+	o.Shoot.Components.Extensions.IngressDNSRecord = b.DefaultIngressDNSRecord()
 	if err != nil {
 		return nil, err
 	}
-	o.Shoot.Components.Extensions.Extension, err = b.DefaultExtension(ctx, b.K8sSeedClient.DirectClient())
+	o.Shoot.Components.Extensions.Extension, err = b.DefaultExtension(ctx)
 	if err != nil {
 		return nil, err
 	}
-	o.Shoot.Components.Extensions.Infrastructure = b.DefaultInfrastructure(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.Network = b.DefaultNetwork(b.K8sSeedClient.DirectClient())
-	o.Shoot.Components.Extensions.OperatingSystemConfig, err = b.DefaultOperatingSystemConfig(b.K8sSeedClient.DirectClient())
+	o.Shoot.Components.Extensions.Infrastructure = b.DefaultInfrastructure()
+	o.Shoot.Components.Extensions.Network = b.DefaultNetwork()
+	o.Shoot.Components.Extensions.OperatingSystemConfig, err = b.DefaultOperatingSystemConfig()
 	if err != nil {
 		return nil, err
 	}
-	o.Shoot.Components.Extensions.Worker = b.DefaultWorker(b.K8sSeedClient.DirectClient())
+	o.Shoot.Components.Extensions.Worker = b.DefaultWorker()
 
 	sniPhase, err := b.SNIPhase(ctx)
 	if err != nil {
@@ -130,16 +134,13 @@ func New(ctx context.Context, o *operation.Operation) (*Botanist, error) {
 	if err != nil {
 		return nil, err
 	}
-	o.Shoot.Components.ControlPlane.KonnectivityServer, err = b.DefaultKonnectivityServer()
-	if err != nil {
-		return nil, err
-	}
 	o.Shoot.Components.ControlPlane.VPNSeedServer, err = b.DefaultVPNSeedServer()
 	if err != nil {
 		return nil, err
 	}
 
 	// system components
+	o.Shoot.Components.SystemComponents.ClusterIdentity = b.DefaultClusterIdentity()
 	o.Shoot.Components.SystemComponents.Namespaces = b.DefaultShootNamespaces()
 	o.Shoot.Components.SystemComponents.MetricsServer, err = b.DefaultMetricsServer()
 	if err != nil {
@@ -147,9 +148,18 @@ func New(ctx context.Context, o *operation.Operation) (*Botanist, error) {
 	}
 
 	// other components
-	o.Shoot.Components.BackupEntry = b.DefaultCoreBackupEntry(b.K8sGardenClient.DirectClient())
-	o.Shoot.Components.ClusterIdentity = clusteridentity.New(o.Shoot.Info.Status.ClusterIdentity, o.GardenClusterIdentity, o.Shoot.Info.Name, o.Shoot.Info.Namespace, o.Shoot.SeedNamespace, string(o.Shoot.Info.Status.UID), b.K8sGardenClient.DirectClient(), b.K8sSeedClient.DirectClient(), b.Logger)
+	o.Shoot.Components.BackupEntry = b.DefaultCoreBackupEntry()
 	o.Shoot.Components.NetworkPolicies, err = b.DefaultNetworkPolicies(sniPhase)
+	if err != nil {
+		return nil, err
+	}
+
+	// Logging
+	o.Shoot.Components.Logging.ShootRBACProxy, err = logging.NewKubeRBACProxy(&logging.KubeRBACProxyOptions{
+		Client:                    b.K8sSeedClient.Client(),
+		Namespace:                 b.Shoot.SeedNamespace,
+		IsShootNodeLoggingEnabled: b.isShootNodeLoggingEnabled(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +179,8 @@ func (b *Botanist) RequiredExtensionsReady(ctx context.Context) error {
 		return err
 	}
 
-	requiredExtensions := shootpkg.ComputeRequiredExtensions(b.Shoot.Info, b.Seed.Info, controllerRegistrationList, b.Garden.InternalDomain, b.Shoot.ExternalDomain)
+	requiredExtensions := shootpkg.ComputeRequiredExtensions(b.Shoot.Info, b.Seed.Info, controllerRegistrationList, b.Garden.InternalDomain, b.Shoot.ExternalDomain,
+		gardenletfeatures.FeatureGate.Enabled(features.UseDNSRecords))
 
 	for _, controllerInstallation := range controllerInstallationList.Items {
 		if controllerInstallation.Spec.SeedRef.Name != b.Seed.Info.Name {

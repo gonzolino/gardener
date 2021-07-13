@@ -5,6 +5,9 @@ gardenClientConnection:
   qps: 100
   burst: 130
 controllers:
+  bastion:
+    maxLifetime: 24h
+    concurrentSyncs: 5
   plant:
     syncPeriod: 10s
     concurrentSyncs: 5
@@ -55,6 +58,8 @@ controllers:
     concurrentSyncs: 5
   controllerRegistration:
     concurrentSyncs: 5
+  exposureClass:
+    concurrentSyncs: 5
 leaderElection:
   leaderElect: true
   leaseDuration: 15s
@@ -69,3 +74,4 @@ server:
     port: 2718
 featureGates:
   CachedRuntimeClients: true
+  UseDNSRecords: false

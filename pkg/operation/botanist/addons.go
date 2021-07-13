@@ -25,21 +25,20 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
+	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1/helper"
 	"github.com/gardener/gardener/pkg/chartrenderer"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	netpol "github.com/gardener/gardener/pkg/operation/botanist/addons/networkpolicy"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/dns"
+	extensionsdnsrecord "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/dnsrecord"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/vpnseedserver"
 	"github.com/gardener/gardener/pkg/operation/common"
-	gutil "github.com/gardener/gardener/pkg/utils/gardener"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/managedresources"
 	"github.com/gardener/gardener/pkg/utils/secrets"
 	versionutils "github.com/gardener/gardener/pkg/utils/version"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
@@ -72,9 +71,9 @@ func (b *Botanist) GenerateKubernetesDashboardConfig() (map[string]interface{}, 
 	return common.GenerateAddonConfig(values, enabled), nil
 }
 
-// EnsureIngressDNSRecord deploys the nginx ingress DNSEntry and DNSOwner resources.
-func (b *Botanist) EnsureIngressDNSRecord(ctx context.Context) error {
-	if b.NeedsExternalDNS() && !b.Shoot.HibernationEnabled && gardencorev1beta1helper.NginxIngressEnabled(b.Shoot.Info.Spec.Addons) {
+// DeployIngressDNS deploys the nginx ingress DNSEntry and DNSOwner resources.
+func (b *Botanist) DeployIngressDNS(ctx context.Context) error {
+	if b.NeedsIngressDNS() {
 		if b.isRestorePhase() {
 			return dnsRestoreDeployer{
 				entry: b.Shoot.Components.Extensions.DNS.NginxEntry,
@@ -94,41 +93,40 @@ func (b *Botanist) EnsureIngressDNSRecord(ctx context.Context) error {
 	).Deploy(ctx)
 }
 
-// DestroyIngressDNSRecord destroys the nginx ingress DNSEntry and DNSOwner resources.
-func (b *Botanist) DestroyIngressDNSRecord(ctx context.Context) error {
+// DestroyIngressDNS destroys the nginx ingress DNSEntry and DNSOwner resources.
+func (b *Botanist) DestroyIngressDNS(ctx context.Context) error {
 	return component.OpDestroyAndWait(
 		b.Shoot.Components.Extensions.DNS.NginxEntry,
 		b.Shoot.Components.Extensions.DNS.NginxOwner,
 	).Destroy(ctx)
 }
 
-// MigrateIngressDNSRecord destroys the nginx ingress DNSEntry and DNSOwner resources,
+// MigrateIngressDNS destroys the nginx ingress DNSEntry and DNSOwner resources,
 // without removing the entry from the DNS provider.
-func (b *Botanist) MigrateIngressDNSRecord(ctx context.Context) error {
-	return component.OpDestroy(
+func (b *Botanist) MigrateIngressDNS(ctx context.Context) error {
+	return component.OpDestroyAndWait(
 		b.Shoot.Components.Extensions.DNS.NginxOwner,
 		b.Shoot.Components.Extensions.DNS.NginxEntry,
 	).Destroy(ctx)
 }
 
 // DefaultNginxIngressDNSEntry returns a Deployer which removes existing nginx ingress DNSEntry.
-func (b *Botanist) DefaultNginxIngressDNSEntry(seedClient client.Client) component.DeployWaiter {
+func (b *Botanist) DefaultNginxIngressDNSEntry() component.DeployWaiter {
 	return component.OpDestroy(dns.NewEntry(
 		b.Logger,
-		seedClient,
+		b.K8sSeedClient.Client(),
 		b.Shoot.SeedNamespace,
 		&dns.EntryValues{
 			Name: common.ShootDNSIngressName,
 			TTL:  *b.Config.Controllers.Shoot.DNSEntryTTLSeconds,
 		},
-		nil,
 	))
 }
 
 // DefaultNginxIngressDNSOwner returns DeployWaiter which removes the nginx ingress DNSOwner.
-func (b *Botanist) DefaultNginxIngressDNSOwner(seedClient client.Client) component.DeployWaiter {
+func (b *Botanist) DefaultNginxIngressDNSOwner() component.DeployWaiter {
 	return component.OpDestroy(dns.NewOwner(
-		seedClient,
+		b.K8sSeedClient.Client(),
 		b.Shoot.SeedNamespace,
 		&dns.OwnerValues{
 			Name: common.ShootDNSIngressName,
@@ -136,16 +134,79 @@ func (b *Botanist) DefaultNginxIngressDNSOwner(seedClient client.Client) compone
 	))
 }
 
+// NeedsIngressDNS returns true if the Shoot cluster needs ingress DNS.
+func (b *Botanist) NeedsIngressDNS() bool {
+	return b.NeedsExternalDNS() && gardencorev1beta1helper.NginxIngressEnabled(b.Shoot.Info.Spec.Addons)
+}
+
+// DefaultIngressDNSRecord creates the default deployer for the ingress DNSRecord resource.
+func (b *Botanist) DefaultIngressDNSRecord() extensionsdnsrecord.Interface {
+	values := &extensionsdnsrecord.Values{
+		Name:       b.Shoot.Info.Name + "-" + common.ShootDNSIngressName,
+		SecretName: b.Shoot.Info.Name + "-" + DNSExternalName,
+		Namespace:  b.Shoot.SeedNamespace,
+		TTL:        b.Config.Controllers.Shoot.DNSEntryTTLSeconds,
+	}
+	if b.NeedsIngressDNS() {
+		values.Type = b.Shoot.ExternalDomain.Provider
+		if b.Shoot.ExternalDomain.Zone != "" {
+			values.Zone = &b.Shoot.ExternalDomain.Zone
+		}
+		values.SecretData = b.Shoot.ExternalDomain.SecretData
+		values.DNSName = b.Shoot.GetIngressFQDN("*")
+	}
+	return extensionsdnsrecord.New(
+		b.Logger,
+		b.K8sSeedClient.Client(),
+		values,
+		extensionsdnsrecord.DefaultInterval,
+		extensionsdnsrecord.DefaultSevereThreshold,
+		extensionsdnsrecord.DefaultTimeout,
+	)
+}
+
+// DeployOrDestroyIngressDNSRecord deploys, restores, or destroys the ingress DNSRecord and waits for the operation to complete.
+func (b *Botanist) DeployOrDestroyIngressDNSRecord(ctx context.Context) error {
+	if b.NeedsIngressDNS() {
+		return b.deployIngressDNSRecord(ctx)
+	}
+	return b.DestroyIngressDNSRecord(ctx)
+}
+
+// deployIngressDNSRecord deploys or restores the ingress DNSRecord and waits for the operation to complete.
+func (b *Botanist) deployIngressDNSRecord(ctx context.Context) error {
+	if err := b.deployOrRestoreDNSRecord(ctx, b.Shoot.Components.Extensions.IngressDNSRecord); err != nil {
+		return err
+	}
+	return b.Shoot.Components.Extensions.IngressDNSRecord.Wait(ctx)
+}
+
+// DestroyIngressDNSRecord destroys the ingress DNSRecord and waits for the operation to complete.
+func (b *Botanist) DestroyIngressDNSRecord(ctx context.Context) error {
+	if err := b.Shoot.Components.Extensions.IngressDNSRecord.Destroy(ctx); err != nil {
+		return err
+	}
+	return b.Shoot.Components.Extensions.IngressDNSRecord.WaitCleanup(ctx)
+}
+
+// MigrateIngressDNSRecord migrates the ingress DNSRecord and waits for the operation to complete.
+func (b *Botanist) MigrateIngressDNSRecord(ctx context.Context) error {
+	if err := b.Shoot.Components.Extensions.IngressDNSRecord.Migrate(ctx); err != nil {
+		return err
+	}
+	return b.Shoot.Components.Extensions.IngressDNSRecord.WaitMigrate(ctx)
+}
+
 // SetNginxIngressAddress sets the IP address of the API server's LoadBalancer.
 func (b *Botanist) SetNginxIngressAddress(address string, seedClient client.Client) {
-	if b.NeedsExternalDNS() && !b.Shoot.HibernationEnabled && gardencorev1beta1helper.NginxIngressEnabled(b.Shoot.Info.Spec.Addons) {
+	if b.NeedsIngressDNS() {
 		ownerID := *b.Shoot.Info.Status.ClusterIdentity + "-" + common.ShootDNSIngressName
 		b.Shoot.Components.Extensions.DNS.NginxOwner = dns.NewOwner(
 			seedClient,
 			b.Shoot.SeedNamespace,
 			&dns.OwnerValues{
 				Name:    common.ShootDNSIngressName,
-				Active:  pointer.BoolPtr(true),
+				Active:  pointer.Bool(true),
 				OwnerID: ownerID,
 			},
 		)
@@ -160,8 +221,10 @@ func (b *Botanist) SetNginxIngressAddress(address string, seedClient client.Clie
 				OwnerID: ownerID,
 				TTL:     *b.Config.Controllers.Shoot.DNSEntryTTLSeconds,
 			},
-			nil,
 		)
+
+		b.Shoot.Components.Extensions.IngressDNSRecord.SetRecordType(extensionsv1alpha1helper.GetDNSRecordType(address))
+		b.Shoot.Components.Extensions.IngressDNSRecord.SetValues([]string{address})
 	}
 }
 
@@ -285,7 +348,7 @@ func (b *Botanist) generateCoreAddonsChart(ctx context.Context) (*chartrenderer.
 	)
 
 	if b.Shoot.IPVSEnabled() {
-		networkPolicyConfig.NodeLocalDNS.KubeDNSClusterIP = NodeLocalIPVSAddress
+		networkPolicyConfig.NodeLocalDNS.KubeDNSClusterIP = common.NodeLocalIPVSAddress
 	}
 
 	if b.APIServerSNIEnabled() {
@@ -303,8 +366,12 @@ func (b *Botanist) generateCoreAddonsChart(ctx context.Context) (*chartrenderer.
 	}
 
 	proxyConfig := b.Shoot.Info.Spec.Kubernetes.KubeProxy
+	kubeProxyEnabled := true
 	if proxyConfig != nil {
 		kubeProxyConfig["featureGates"] = proxyConfig.FeatureGates
+		if proxyConfig.Enabled != nil {
+			kubeProxyEnabled = *proxyConfig.Enabled
+		}
 	}
 
 	if domain := b.Shoot.ExternalClusterDomain; domain != nil {
@@ -394,7 +461,7 @@ func (b *Botanist) generateCoreAddonsChart(ctx context.Context) (*chartrenderer.
 		"node-local-dns":         common.GenerateAddonConfig(nodelocalDNS, b.Shoot.NodeLocalDNSEnabled),
 		"kube-apiserver-kubelet": common.GenerateAddonConfig(nil, true),
 		"apiserver-proxy":        common.GenerateAddonConfig(apiserverProxy, b.APIServerSNIEnabled()),
-		"kube-proxy":             common.GenerateAddonConfig(kubeProxy, true),
+		"kube-proxy":             common.GenerateAddonConfig(kubeProxy, kubeProxyEnabled),
 		"monitoring": common.GenerateAddonConfig(map[string]interface{}{
 			"node-exporter":     nodeExporter,
 			"blackbox-exporter": blackboxExporter,
@@ -407,36 +474,7 @@ func (b *Botanist) generateCoreAddonsChart(ctx context.Context) (*chartrenderer.
 		"cluster-identity":        map[string]interface{}{"clusterIdentity": b.Shoot.Info.Status.ClusterIdentity},
 	}
 
-	shootClient := b.K8sShootClient.Client()
-
-	if b.Shoot.KonnectivityTunnelEnabled {
-		konnectivityAgentConfig := map[string]interface{}{
-			"proxyHost": gutil.GetAPIServerDomain(b.Shoot.InternalClusterDomain),
-			"podAnnotations": map[string]interface{}{
-				"checksum/secret-konnectivity-agent": b.CheckSums["konnectivity-agent"],
-			},
-		}
-
-		// Konnectivity agent related values
-		konnectivityAgent, err := b.InjectShootShootImages(konnectivityAgentConfig, charts.ImageNameKonnectivityAgent)
-		if err != nil {
-			return nil, err
-		}
-
-		values["konnectivity-agent"] = common.GenerateAddonConfig(konnectivityAgent, true)
-
-		// TODO: remove when konnectivity tunnel is the default tunneling method for all shoots.
-		secret, err := kutil.GetSecretByReference(ctx, shootClient, &corev1.SecretReference{Namespace: metav1.NamespaceSystem, Name: "vpn-shoot"})
-		if err != nil && !apierrors.IsNotFound(err) {
-			return nil, err
-		}
-
-		if secret != nil {
-			if err := b.K8sShootClient.Client().Delete(ctx, secret); err != nil {
-				return nil, err
-			}
-		}
-	} else if b.Shoot.ReversedVPNEnabled {
+	if b.Shoot.ReversedVPNEnabled {
 		var (
 			vpnTLSAuthSecret = b.Secrets[vpnseedserver.VpnSeedServerTLSAuth]
 			vpnShootSecret   = b.Secrets[vpnseedserver.VpnShootSecretName]

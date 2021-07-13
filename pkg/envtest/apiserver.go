@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -36,18 +35,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	apiserverapp "github.com/gardener/gardener/cmd/gardener-apiserver/app"
 	"github.com/gardener/gardener/pkg/apiserver"
+	"github.com/gardener/gardener/pkg/apiserver/features"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
-	"github.com/gardener/gardener/pkg/gardenlet/bootstrap/util"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/retry"
 	"github.com/gardener/gardener/pkg/utils/secrets"
@@ -92,8 +92,8 @@ type GardenerAPIServer struct {
 
 	// caCert is the certificate of the CA that signed the GardenerAPIServer's serving cert.
 	caCert *secrets.Certificate
-	// restConfig is used to setup and register the APIServer with the envtest kube-apiserver.
-	restConfig *rest.Config
+	// user is used to setup and register the GardenerAPIServer with the envtest kube-apiserver.
+	user *envtest.AuthenticatedUser
 	// listenURL is the URL we end up listening on.
 	listenURL *url.URL
 	// terminateFunc holds a func that will terminate this GardenerAPIServer.
@@ -104,6 +104,8 @@ type GardenerAPIServer struct {
 
 // Start brings up the GardenerAPIServer, waits for it to be healthy and registers Gardener's APIs.
 func (g *GardenerAPIServer) Start() error {
+	features.RegisterFeatureGates()
+
 	if err := g.defaultSettings(); err != nil {
 		return err
 	}
@@ -172,7 +174,7 @@ func (g *GardenerAPIServer) runAPIServerInProcess() error {
 	// Err is explicitly set.
 	if g.Err == nil {
 		// a nil writer causes klog to panic
-		g.Err = ioutil.Discard
+		g.Err = io.Discard
 	}
 	// --logtostderr defaults to true, which will cause klog to log to stderr even if we set a different output writer
 	g.Args = append(g.Args, "--logtostderr=false")
@@ -269,13 +271,13 @@ func (g *GardenerAPIServer) defaultSettings() error {
 
 // prepareKubeconfigFile marshals the test environments rest config to a kubeconfig file in the CertDir.
 func (g *GardenerAPIServer) prepareKubeconfigFile() (string, error) {
-	kubeconfigBytes, err := util.CreateGardenletKubeconfigWithClientCertificate(g.restConfig, nil, nil)
+	kubeconfigBytes, err := g.user.KubeConfig()
 	if err != nil {
 		return "", err
 	}
 	kubeconfigFile := filepath.Join(g.CertDir, "kubeconfig.yaml")
 
-	return kubeconfigFile, ioutil.WriteFile(kubeconfigFile, kubeconfigBytes, 0600)
+	return kubeconfigFile, os.WriteFile(kubeconfigFile, kubeconfigBytes, 0600)
 }
 
 // waitUntilHealthy waits for the HealthCheckEndpoint to return 200.
@@ -309,7 +311,7 @@ func (g *GardenerAPIServer) waitUntilHealthy(ctx context.Context) error {
 
 // registerGardenerAPIs registers GardenerAPIServer's APIs in the test environment and waits for them to be discoverable.
 func (g *GardenerAPIServer) registerGardenerAPIs(ctx context.Context) error {
-	c, err := client.New(g.restConfig, client.Options{Scheme: kubernetes.GardenScheme})
+	c, err := client.New(g.user.Config(), client.Options{Scheme: kubernetes.GardenScheme})
 	if err != nil {
 		return err
 	}
@@ -356,7 +358,7 @@ func (g *GardenerAPIServer) registerGardenerAPIs(ctx context.Context) error {
 	}
 
 	// wait for all APIGroupVersions to be discoverable
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(g.restConfig)
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(g.user.Config())
 	if err != nil {
 		return err
 	}
@@ -415,19 +417,26 @@ func apiServiceNameForSchemeGroupVersion(gv schema.GroupVersion) string {
 
 // Stop stops this GardenerAPIServer and cleans its temporary resources.
 func (g *GardenerAPIServer) Stop() error {
-	// trigger stop procedure
-	g.terminateFunc()
+	var errList []error
 
-	select {
-	case <-g.exited:
-		break
-	case <-time.After(g.StopTimeout):
-		return fmt.Errorf("timeout waiting for gardener-apiserver to stop")
+	// trigger stop procedure
+	if g.terminateFunc != nil {
+		g.terminateFunc()
+
+		select {
+		case <-g.exited:
+			break
+		case <-time.After(g.StopTimeout):
+			errList = append(errList, fmt.Errorf("timeout waiting for gardener-apiserver to stop"))
+		}
 	}
 
 	// cleanup temp dirs
 	if g.CertDir != "" {
-		return os.RemoveAll(g.CertDir)
+		if err := os.RemoveAll(g.CertDir); err != nil {
+			errList = append(errList, err)
+		}
 	}
-	return nil
+
+	return utilerrors.NewAggregate(errList)
 }

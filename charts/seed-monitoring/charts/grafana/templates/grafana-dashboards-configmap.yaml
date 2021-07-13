@@ -13,6 +13,12 @@ data:
 {{ toString $bytes | indent 4}}
 {{- end }}
 {{- end }}
+{{- if .Values.nodeLocalDNS.enabled }}
+  {{ range $name, $bytes := .Files.Glob "dashboards/dns/**.json" }}
+  {{ base $name }}: |-
+{{ toString $bytes | indent 4}}
+{{- end }}
+{{- end }}
 {{ if eq .Values.role "users" }}
 {{ range $name, $bytes := .Files.Glob "dashboards/owners/**.json" }}
 {{ if not (and (eq $name "dashboards/owners/shoot-vpa-dashboard.json") (eq $.Values.vpaEnabled false)) }}
@@ -21,24 +27,17 @@ data:
 {{ end }}
 {{ end }}
 {{ else }}
-{{ range $name, $bytes := .Files.Glob "dashboards/**.json" }}
-  {{ if eq $name "dashboards/operators/vpn-dashboard.json" }}
-  {{ if not $.Values.konnectivityTunnel.enabled }}
+{{ range $name, $bytes := .Files.Glob "dashboards/owners/**.json" }}
   {{ base $name }}: |-
 {{ toString $bytes | indent 4}}
-  {{ end }}
-  {{ else }}
-  {{ base $name }}: |-
-{{ toString $bytes | indent 4}}
-  {{ end }}
 {{ end }}
+{{ range $name, $bytes := .Files.Glob "dashboards/operators/**.json" }}
+  {{ base $name }}: |-
+{{ toString $bytes | indent 4}}
+  {{ end }}
 {{ end }}
 {{- if .Values.extensions.dashboards }}
 {{- toString .Values.extensions.dashboards | indent 2 }}
 {{ end }}
-{{ range $component := .Values.exposedComponents }}
-  {{ if or (ne $component.fileName "vpa-logging.json") ($.Values.vpaEnabled)}}
-  {{ $component.fileName }}: |-
-{{ include "logging-dashboard" $component | indent 4 }}
-  {{ end }}
-{{- end }}
+  controlplane-logs-dashboard.json: |-
+{{ include "logging-dashboard" .Values.extensions.observedPods | indent 4 }}

@@ -42,6 +42,23 @@ The high-level flow is as follows:
 
 1. After the VM has been provisioned the `downloader` script starts and fetches the appropriate `Secret` for its worker pool (containing the "original" user-data) and applies it.
 
+### Detailed bootstrap flow with a worker generated bootstrap-token
+
+With gardener v1.23 a file with the content `<<BOOTSTRAP_TOKEN>>` is added to the `cloud-config-<worker-group>-downloader` `OperatingSystemConfig` (part of step 2 in the graphic below).
+Via the OS extension the new file (with its content in clear-text) gets passed to the corresponding `Worker` resource.
+
+The `Worker` controller has to guarantee that:
+- a bootstrap token is created.
+- the `<<BOOTSTRAP_TOKEN>>` in the user data is replaced by the generated token.
+One implementation of that is depicted in the picture where the machine-controller-manager creates a temporary token and replaces the placeholder.
+
+As part of the user-data the bootstrap-token is placed on the newly created VM under a defined path.
+The cloud-config-script will then refer to the file path of the added bootstrap token in the kubelet-bootstrap script.
+
+If either the `Worker` controller does not replace the `<<BOOTSTRAP_TOKEN>>` or the OS extension does not support the `transmitUnencoded` flag then the bootstrap flow will fall back to the old flow of using a shared bootstrap token between the worker nodes of a shoot cluster.
+
+![Bootstrap flow with shortlived bootstrapTokens](./images/bootstrap_token.png)
+
 ## How does Gardener update the user-data on already existing machines?
 
 With ongoing development and new releases of Gardener some new components could be required to get installed onto every shoot worker VM, or existing components need to be changed.
@@ -169,7 +186,7 @@ status:
 Once the `.status` indicates that the extension controller finished reconciling Gardener will continue with the next step of the shoot reconciliation flow.
 
 ## CRI Support
-Gardener supports specifying Container Runtime Interface (CRI) configuration in the `OperatingSystemConfig` resource. The only CRI supported at the moment is: "containerd".
+Gardener supports specifying Container Runtime Interface (CRI) configuration in the `OperatingSystemConfig` resource. If the `.spec.cri` section exists then the `name` property is mandatory. The only supported values for `cri.name` at the moment are: `containerd` and `docker`, which uses the in-tree dockershim.
 For example:
 ```yaml
 ---
@@ -186,13 +203,11 @@ spec:
     name: containerd
 ...
 ```
-If the `.spec.cri` section exists then the `name` property is mandatory. The only valid value at the moment is `containerd`.
-When the `.spec.cri` field is declared the kubelet will be configured by Gardener to work with ContainerD. Gardener expects that ContainerD service is running on the OS with the default socket path: `unix:///run/containerd/containerd.sock`. 
 
-Each OS extension must support the CRI configurations by:
+To support ContainerD, an OS extension must :
 1. The operating system must have built-in  [ContainerD](https://containerd.io/) and the  [Client CLI](https://github.com/projectatomic/containerd/blob/master/docs/cli.md/)
-2. ContainerD service should be configure to work with the default configuration file in: /etc/containerd.config.toml (Created by Gardener).
-
+1. ContainerD must listen on its default socket path: `unix:///run/containerd/containerd.sock`
+1. ContainerD must be configured to work with the default configuration file in: `/etc/containerd.config.toml` (Created by Gardener).
 
 If CRI configurations are not supported it is recommended create a validating webhook running in the garden cluster that prevents specifying the `.spec.providers.workers[].cri` section in the `Shoot` objects.
 

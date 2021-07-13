@@ -60,8 +60,8 @@ const (
 	volumeMountPathServer = "/srv/metrics-server/tls"
 )
 
-// MetricsServer contains functions for a metrics-server deployer.
-type MetricsServer interface {
+// Interface contains functions for a metrics-server deployer.
+type Interface interface {
 	component.DeployWaiter
 	// SetSecrets sets the secrets.
 	SetSecrets(Secrets)
@@ -76,7 +76,7 @@ func New(
 	image string,
 	vpaEnabled bool,
 	kubeAPIServerHost *string,
-) MetricsServer {
+) Interface {
 	return &metricsServer{
 		client:            client,
 		namespace:         namespace,
@@ -264,7 +264,7 @@ func (m *metricsServer) computeResourcesData() (map[string][]byte, error) {
 				}),
 			},
 			Spec: appsv1.DeploymentSpec{
-				RevisionHistoryLimit: pointer.Int32Ptr(1),
+				RevisionHistoryLimit: pointer.Int32(1),
 				Selector:             &metav1.LabelSelector{MatchLabels: getLabels()},
 				Strategy: appsv1.DeploymentStrategy{
 					RollingUpdate: &appsv1.RollingUpdateDeployment{
@@ -296,8 +296,8 @@ func (m *metricsServer) computeResourcesData() (map[string][]byte, error) {
 							v1beta1constants.LabelWorkerPoolSystemComponents: "true",
 						},
 						SecurityContext: &corev1.PodSecurityContext{
-							RunAsUser: pointer.Int64Ptr(65534),
-							FSGroup:   pointer.Int64Ptr(65534),
+							RunAsUser: pointer.Int64(65534),
+							FSGroup:   pointer.Int64(65534),
 						},
 						DNSPolicy:          corev1.DNSDefault, // make sure to not use the coredns for DNS resolution.
 						ServiceAccountName: serviceAccount.Name,
@@ -350,7 +350,7 @@ func (m *metricsServer) computeResourcesData() (map[string][]byte, error) {
 									corev1.ResourceMemory: resource.MustParse("150Mi"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceCPU:    resource.MustParse("500m"),
 									corev1.ResourceMemory: resource.MustParse("1Gi"),
 								},
 							},
@@ -383,11 +383,6 @@ func (m *metricsServer) computeResourcesData() (map[string][]byte, error) {
 	}
 
 	if m.vpaEnabled {
-		deployment.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("80m"),
-			corev1.ResourceMemory: resource.MustParse("400Mi"),
-		}
-
 		vpaUpdateMode := autoscalingv1beta2.UpdateModeAuto
 		vpa = &autoscalingv1beta2.VerticalPodAutoscaler{
 			ObjectMeta: metav1.ObjectMeta{

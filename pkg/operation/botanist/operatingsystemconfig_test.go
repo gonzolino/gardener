@@ -18,14 +18,19 @@ import (
 	"context"
 	"fmt"
 
+	gardencore "github.com/gardener/gardener/pkg/apis/core"
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	mockkubernetes "github.com/gardener/gardener/pkg/client/kubernetes/mock"
+	"github.com/gardener/gardener/pkg/features"
+	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
+	gardenletfeatures "github.com/gardener/gardener/pkg/gardenlet/features"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
 	"github.com/gardener/gardener/pkg/operation"
 	. "github.com/gardener/gardener/pkg/operation/botanist"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/operatingsystemconfig"
 	mockoperatingsystemconfig "github.com/gardener/gardener/pkg/operation/botanist/component/extensions/operatingsystemconfig/mock"
+	seedpkg "github.com/gardener/gardener/pkg/operation/seed"
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
@@ -54,10 +59,13 @@ var _ = Describe("operatingsystemconfig", func() {
 		fakeErr    = fmt.Errorf("fake")
 		shootState = &gardencorev1alpha1.ShootState{}
 
-		ca             = []byte("ca")
-		caKubelet      = []byte("ca-kubelet")
-		caCloudProfile = "ca-cloud-profile"
-		sshPublicKey   = []byte("ssh-public-key")
+		ca                    = []byte("ca")
+		caKubelet             = []byte("ca-kubelet")
+		caCloudProfile        = "ca-cloud-profile"
+		sshPublicKey          = []byte("ssh-public-key")
+		kubernetesVersion     = "1.2.3"
+		promtailRBACAuthToken = "supersecrettoken"
+		ingressDomain         = "seed-test.ingress.domain.com"
 	)
 
 	BeforeEach(func() {
@@ -74,6 +82,21 @@ var _ = Describe("operatingsystemconfig", func() {
 				Components: &shootpkg.Components{
 					Extensions: &shootpkg.Extensions{
 						OperatingSystemConfig: operatingSystemConfig,
+					},
+				},
+				Purpose: "development",
+				Info: &gardencorev1beta1.Shoot{
+					Status: gardencorev1beta1.ShootStatus{
+						TechnicalID: "shoot--garden-testing",
+					},
+				},
+			},
+			Seed: &seedpkg.Seed{
+				Info: &gardencorev1beta1.Seed{
+					Spec: gardencorev1beta1.SeedSpec{
+						DNS: gardencorev1beta1.SeedDNS{
+							IngressDomain: &ingressDomain,
+						},
 					},
 				},
 			},
@@ -101,7 +124,7 @@ var _ = Describe("operatingsystemconfig", func() {
 			})
 
 			It("should deploy successfully (only cluster CA)", func() {
-				operatingSystemConfig.EXPECT().SetCABundle(pointer.StringPtr("\n" + string(ca)))
+				operatingSystemConfig.EXPECT().SetCABundle(pointer.String("\n" + string(ca)))
 
 				operatingSystemConfig.EXPECT().Deploy(ctx)
 				Expect(botanist.DeployOperatingSystemConfig(ctx)).To(Succeed())
@@ -116,16 +139,35 @@ var _ = Describe("operatingsystemconfig", func() {
 				Expect(botanist.DeployOperatingSystemConfig(ctx)).To(Succeed())
 			})
 
+			It("should deploy successfully shoot logging components with non testing purpose", func() {
+				botanist.Shoot.Purpose = "development"
+				botanist.PromtailRBACAuthToken = promtailRBACAuthToken
+				botanist.Config = &config.GardenletConfiguration{
+					Logging: &config.Logging{
+						ShootNodeLogging: &config.ShootNodeLogging{
+							ShootPurposes: []gardencore.ShootPurpose{"evaluation", "development"},
+						},
+					},
+				}
+				Expect(gardenletfeatures.FeatureGate.SetFromMap(map[string]bool{string(features.Logging): true})).To(Succeed())
+				operatingSystemConfig.EXPECT().SetCABundle(pointer.StringPtr("\n" + string(ca)))
+				operatingSystemConfig.EXPECT().SetPromtailRBACAuthToken(promtailRBACAuthToken)
+				operatingSystemConfig.EXPECT().SetLokiIngressHostName(botanist.ComputeLokiHost())
+
+				operatingSystemConfig.EXPECT().Deploy(ctx)
+				Expect(botanist.DeployOperatingSystemConfig(ctx)).To(Succeed())
+			})
+
 			It("should deploy successfully (both cluster and CloudProfile CA)", func() {
 				botanist.Shoot.CloudProfile.Spec.CABundle = &caCloudProfile
-				operatingSystemConfig.EXPECT().SetCABundle(pointer.StringPtr(caCloudProfile + "\n" + string(ca)))
+				operatingSystemConfig.EXPECT().SetCABundle(pointer.String(caCloudProfile + "\n" + string(ca)))
 
 				operatingSystemConfig.EXPECT().Deploy(ctx)
 				Expect(botanist.DeployOperatingSystemConfig(ctx)).To(Succeed())
 			})
 
 			It("should return the error during deployment", func() {
-				operatingSystemConfig.EXPECT().SetCABundle(pointer.StringPtr("\n" + string(ca)))
+				operatingSystemConfig.EXPECT().SetCABundle(pointer.String("\n" + string(ca)))
 
 				operatingSystemConfig.EXPECT().Deploy(ctx).Return(fakeErr)
 				Expect(botanist.DeployOperatingSystemConfig(ctx)).To(MatchError(fakeErr))
@@ -142,7 +184,7 @@ var _ = Describe("operatingsystemconfig", func() {
 					},
 				}
 
-				operatingSystemConfig.EXPECT().SetCABundle(pointer.StringPtr("\n" + string(ca)))
+				operatingSystemConfig.EXPECT().SetCABundle(pointer.String("\n" + string(ca)))
 			})
 
 			It("should restore successfully", func() {
@@ -264,21 +306,22 @@ var _ = Describe("operatingsystemconfig", func() {
 				// fake function for generation of executor script
 				oldExecutorScriptFn := ExecutorScriptFn
 				defer func() { ExecutorScriptFn = oldExecutorScriptFn }()
-				ExecutorScriptFn = func(bootstrapToken string, cloudConfigUserData []byte, images map[string]interface{}, kubeletDataVolume *gardencorev1beta1.DataVolume, reloadConfigCommand string, units []string) ([]byte, error) {
-					return []byte(fmt.Sprintf("%s_%s_%s_%s_%s_%s", bootstrapToken, cloudConfigUserData, images, kubeletDataVolume, reloadConfigCommand, units)), params.executorScriptFnError
+				ExecutorScriptFn = func(bootstrapToken string, cloudConfigUserData []byte, hyperkubeImage *imagevector.Image, kubernetesVersion string, kubeletDataVolume *gardencorev1beta1.DataVolume, reloadConfigCommand string, units []string) ([]byte, error) {
+					return []byte(fmt.Sprintf("%s_%s_%s_%s_%s_%s_%s", bootstrapToken, cloudConfigUserData, hyperkubeImage.String(), kubernetesVersion, kubeletDataVolume, reloadConfigCommand, units)), params.executorScriptFnError
 				}
 
 				// bootstrap token secret generation/retrieval
 				kubernetesClientShoot.EXPECT().Get(ctx, gomock.AssignableToTypeOf(client.ObjectKey{}), gomock.AssignableToTypeOf(&corev1.Secret{})).AnyTimes().Return(params.bootstrapTokenSecretReadError)
 
 				if params.bootstrapTokenSecretReadError == nil {
-					kubernetesClientShoot.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(func(_ context.Context, obj *corev1.Secret, _ ...client.UpdateOption) error {
-						(&corev1.Secret{Data: map[string][]byte{
-							"token-id":     []byte(bootstrapTokenID),
-							"token-secret": []byte(bootstrapTokenSecret),
-						}}).DeepCopyInto(obj)
-						return nil
-					})
+					kubernetesClientShoot.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						DoAndReturn(func(_ context.Context, obj *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
+							(&corev1.Secret{Data: map[string][]byte{
+								"token-id":     []byte(bootstrapTokenID),
+								"token-secret": []byte(bootstrapTokenSecret),
+							}}).DeepCopyInto(obj)
+							return nil
+						})
 
 					// image vector for retrieval of required images
 					botanist.ImageVector = params.imageVector
@@ -293,7 +336,7 @@ var _ = Describe("operatingsystemconfig", func() {
 
 							// managed resource secret reconciliation for executor scripts for worker pools
 							// worker pool 1
-							worker1ExecutorScript, _ := ExecutorScriptFn(bootstrapTokenID+"."+bootstrapTokenSecret, []byte(worker1OriginalContent), map[string]interface{}{"hyperkube": ":v"}, nil, worker1OriginalCommand, worker1OriginalUnits)
+							worker1ExecutorScript, _ := ExecutorScriptFn(bootstrapTokenID+"."+bootstrapTokenSecret, []byte(worker1OriginalContent), &imagevector.Image{Tag: pointer.String("v")}, kubernetesVersion, nil, worker1OriginalCommand, worker1OriginalUnits)
 							kubernetesClientSeed.EXPECT().Get(ctx, kutil.Key(namespace, "managedresource-shoot-cloud-config-execution-"+worker1Name), gomock.AssignableToTypeOf(&corev1.Secret{}))
 							kubernetesClientSeed.EXPECT().Update(ctx, &corev1.Secret{
 								ObjectMeta: metav1.ObjectMeta{
@@ -319,7 +362,7 @@ metadata:
 							})
 
 							// worker pool 2
-							worker2ExecutorScript, _ := ExecutorScriptFn(bootstrapTokenID+"."+bootstrapTokenSecret, []byte(worker2OriginalContent), map[string]interface{}{"hyperkube": ":v"}, &gardencorev1beta1.DataVolume{Name: worker2KubeletDataVolumeName}, worker2OriginalCommand, worker2OriginalUnits)
+							worker2ExecutorScript, _ := ExecutorScriptFn(bootstrapTokenID+"."+bootstrapTokenSecret, []byte(worker2OriginalContent), &imagevector.Image{Tag: pointer.String("v")}, kubernetesVersion, &gardencorev1beta1.DataVolume{Name: worker2KubeletDataVolumeName}, worker2OriginalCommand, worker2OriginalUnits)
 							kubernetesClientSeed.EXPECT().Get(ctx, kutil.Key(namespace, "managedresource-shoot-cloud-config-execution-"+worker2Name), gomock.AssignableToTypeOf(&corev1.Secret{}))
 							kubernetesClientSeed.EXPECT().Update(ctx, &corev1.Secret{
 								ObjectMeta: metav1.ObjectMeta{
@@ -374,7 +417,7 @@ metadata:
 											corev1.LocalObjectReference{Name: "managedresource-shoot-cloud-config-rbac"},
 										))
 										Expect(obj.Spec.InjectLabels).To(Equal(map[string]string{"shoot.gardener.cloud/no-cleanup": "true"}))
-										Expect(obj.Spec.KeepObjects).To(Equal(pointer.BoolPtr(false)))
+										Expect(obj.Spec.KeepObjects).To(Equal(pointer.Bool(false)))
 										return nil
 									})
 

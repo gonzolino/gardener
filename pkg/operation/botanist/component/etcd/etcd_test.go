@@ -21,6 +21,7 @@ import (
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	mockkubernetes "github.com/gardener/gardener/pkg/client/kubernetes/mock"
+	"github.com/gardener/gardener/pkg/logger"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	. "github.com/gardener/gardener/pkg/operation/botanist/component/etcd"
@@ -32,6 +33,7 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2beta1 "k8s.io/api/autoscaling/v2beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -48,12 +50,6 @@ import (
 )
 
 var _ = Describe("Etcd", func() {
-	Describe("#Name", func() {
-		It("should return the expected name", func() {
-			Expect(Name(testRole)).To(Equal("etcd-" + testRole))
-		})
-	})
-
 	Describe("#ServiceName", func() {
 		It("should return the expected service name", func() {
 			Expect(ServiceName(testRole)).To(Equal("etcd-" + testRole + "-client"))
@@ -63,7 +59,8 @@ var _ = Describe("Etcd", func() {
 	var (
 		ctrl *gomock.Controller
 		c    *mockclient.MockClient
-		etcd Etcd
+		etcd Interface
+		log  logrus.FieldLogger
 
 		ctx                     = context.TODO()
 		fakeErr                 = fmt.Errorf("fake err")
@@ -98,11 +95,10 @@ var _ = Describe("Etcd", func() {
 			Enabled: true,
 			Policy:  &compressionPolicy,
 		}
-		updateModeAuto              = hvpav1alpha1.UpdateModeAuto
-		updateModeMaintenanceWindow = hvpav1alpha1.UpdateModeMaintenanceWindow
-		containerPolicyOff          = autoscalingv1beta2.ContainerScalingModeOff
-		metricsBasic                = druidv1alpha1.Basic
-		metricsExtensive            = druidv1alpha1.Extensive
+		updateModeAuto     = hvpav1alpha1.UpdateModeAuto
+		containerPolicyOff = autoscalingv1beta2.ContainerScalingModeOff
+		metricsBasic       = druidv1alpha1.Basic
+		metricsExtensive   = druidv1alpha1.Extensive
 
 		networkPolicyName = "allow-etcd"
 		etcdName          = "etcd-" + testRole
@@ -227,7 +223,7 @@ var _ = Describe("Etcd", func() {
 				},
 				Spec: druidv1alpha1.EtcdSpec{
 					Replicas:          replicas,
-					PriorityClassName: pointer.StringPtr("gardener-shoot-controlplane"),
+					PriorityClassName: pointer.String("gardener-shoot-controlplane"),
 					Annotations: map[string]string{
 						"checksum/secret-etcd-ca":          secretChecksumCA,
 						"checksum/secret-etcd-server-cert": secretChecksumServer,
@@ -278,14 +274,14 @@ var _ = Describe("Etcd", func() {
 						SnapshotCompression:     &compressionSpec,
 					},
 					StorageCapacity:     &storageCapacityQuantity,
-					VolumeClaimTemplate: pointer.StringPtr(etcdName),
+					VolumeClaimTemplate: pointer.String(etcdName),
 				},
 			}
 
 			if class == ClassImportant {
 				obj.Spec.Annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"] = "false"
 				obj.Spec.Etcd.Metrics = &metricsExtensive
-				obj.Spec.VolumeClaimTemplate = pointer.StringPtr(testRole + "-etcd")
+				obj.Spec.VolumeClaimTemplate = pointer.String(testRole + "-etcd")
 			}
 
 			if backupConfig != nil {
@@ -311,7 +307,7 @@ var _ = Describe("Etcd", func() {
 
 			return obj
 		}
-		hvpaFor = func(class Class, replicas int32) *hvpav1alpha1.Hvpa {
+		hvpaFor = func(class Class, replicas int32, scaleDownUpdateMode string) *hvpav1alpha1.Hvpa {
 			obj := &hvpav1alpha1.Hvpa{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      hvpaName,
@@ -323,7 +319,7 @@ var _ = Describe("Etcd", func() {
 					},
 				},
 				Spec: hvpav1alpha1.HvpaSpec{
-					Replicas: pointer.Int32Ptr(1),
+					Replicas: pointer.Int32(1),
 					MaintenanceTimeWindow: &hvpav1alpha1.MaintenanceTimeWindow{
 						Begin: maintenanceTimeWindow.Begin,
 						End:   maintenanceTimeWindow.End,
@@ -349,14 +345,14 @@ var _ = Describe("Etcd", func() {
 										Type: autoscalingv2beta1.ResourceMetricSourceType,
 										Resource: &autoscalingv2beta1.ResourceMetricSource{
 											Name:                     corev1.ResourceCPU,
-											TargetAverageUtilization: pointer.Int32Ptr(80),
+											TargetAverageUtilization: pointer.Int32(80),
 										},
 									},
 									{
 										Type: autoscalingv2beta1.ResourceMetricSourceType,
 										Resource: &autoscalingv2beta1.ResourceMetricSource{
 											Name:                     corev1.ResourceMemory,
-											TargetAverageUtilization: pointer.Int32Ptr(80),
+											TargetAverageUtilization: pointer.Int32(80),
 										},
 									},
 								},
@@ -374,42 +370,42 @@ var _ = Describe("Etcd", func() {
 							UpdatePolicy: hvpav1alpha1.UpdatePolicy{
 								UpdateMode: &updateModeAuto,
 							},
-							StabilizationDuration: pointer.StringPtr("5m"),
+							StabilizationDuration: pointer.String("5m"),
 							MinChange: hvpav1alpha1.ScaleParams{
 								CPU: hvpav1alpha1.ChangeParams{
-									Value:      pointer.StringPtr("1"),
-									Percentage: pointer.Int32Ptr(80),
+									Value:      pointer.String("1"),
+									Percentage: pointer.Int32(80),
 								},
 								Memory: hvpav1alpha1.ChangeParams{
-									Value:      pointer.StringPtr("2G"),
-									Percentage: pointer.Int32Ptr(80),
+									Value:      pointer.String("2G"),
+									Percentage: pointer.Int32(80),
 								},
 							},
 						},
 						ScaleDown: hvpav1alpha1.ScaleType{
 							UpdatePolicy: hvpav1alpha1.UpdatePolicy{
-								UpdateMode: &updateModeMaintenanceWindow,
+								UpdateMode: &scaleDownUpdateMode,
 							},
-							StabilizationDuration: pointer.StringPtr("15m"),
+							StabilizationDuration: pointer.String("15m"),
 							MinChange: hvpav1alpha1.ScaleParams{
 								CPU: hvpav1alpha1.ChangeParams{
-									Value:      pointer.StringPtr("1"),
-									Percentage: pointer.Int32Ptr(80),
+									Value:      pointer.String("1"),
+									Percentage: pointer.Int32(80),
 								},
 								Memory: hvpav1alpha1.ChangeParams{
-									Value:      pointer.StringPtr("2G"),
-									Percentage: pointer.Int32Ptr(80),
+									Value:      pointer.String("2G"),
+									Percentage: pointer.Int32(80),
 								},
 							},
 						},
 						LimitsRequestsGapScaleParams: hvpav1alpha1.ScaleParams{
 							CPU: hvpav1alpha1.ChangeParams{
-								Value:      pointer.StringPtr("2"),
-								Percentage: pointer.Int32Ptr(40),
+								Value:      pointer.String("2"),
+								Percentage: pointer.Int32(40),
 							},
 							Memory: hvpav1alpha1.ChangeParams{
-								Value:      pointer.StringPtr("5G"),
-								Percentage: pointer.Int32Ptr(40),
+								Value:      pointer.String("5G"),
+								Percentage: pointer.Int32(40),
 							},
 						},
 						Template: hvpav1alpha1.VpaTemplate{
@@ -470,7 +466,8 @@ var _ = Describe("Etcd", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		c = mockclient.NewMockClient(ctrl)
-		etcd = New(c, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
+		log = logger.NewNopLogger()
+		etcd = New(c, log, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
 	})
 
 	AfterEach(func() {
@@ -495,13 +492,18 @@ var _ = Describe("Etcd", func() {
 		})
 
 		Context("secret information available", func() {
-			setSecretsAndHVPAConfig := func() {
-				etcd.SetSecrets(secrets)
-				etcd.SetHVPAConfig(&HVPAConfig{
-					Enabled:               true,
-					MaintenanceTimeWindow: maintenanceTimeWindow,
-				})
+			var scaleDownUpdateMode = hvpav1alpha1.UpdateModeMaintenanceWindow
+			getSetSecretsAndHVPAConfigFunc := func(updateMode string) func() {
+				return func() {
+					etcd.SetSecrets(secrets)
+					etcd.SetHVPAConfig(&HVPAConfig{
+						Enabled:               true,
+						MaintenanceTimeWindow: maintenanceTimeWindow,
+						ScaleDownUpdateMode:   pointer.String(updateMode),
+					})
+				}
 			}
+			setSecretsAndHVPAConfig := getSetSecretsAndHVPAConfigFunc(scaleDownUpdateMode)
 
 			BeforeEach(setSecretsAndHVPAConfig)
 
@@ -544,7 +546,7 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(etcd.Deploy(ctx)).To(MatchError(fakeErr))
@@ -556,9 +558,9 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(etcd.Deploy(ctx)).To(MatchError(fakeErr))
@@ -570,11 +572,11 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(etcd.Deploy(ctx)).To(MatchError(fakeErr))
@@ -588,9 +590,9 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()),
 					c.EXPECT().Delete(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Return(fakeErr),
 				)
 
@@ -607,11 +609,11 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(networkPolicy))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(etcdObjFor(
 							class,
 							1,
@@ -623,8 +625,8 @@ var _ = Describe("Etcd", func() {
 						)))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(hvpaFor(class, 1, scaleDownUpdateMode)))
 					}),
 				)
 
@@ -641,7 +643,7 @@ var _ = Describe("Etcd", func() {
 					retainReplicas         = true
 				)
 
-				etcd = New(c, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
+				etcd = New(c, log, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
 				setSecretsAndHVPAConfig()
 
 				gomock.InOrder(
@@ -665,11 +667,14 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(networkPolicy))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj *druidv1alpha1.Etcd, _ client.Patch, _ ...client.PatchOption) {
+						// ignore status when comparing
+						obj.Status = druidv1alpha1.EtcdStatus{}
+
 						Expect(obj).To(DeepEqual(etcdObjFor(
 							class,
 							int(existingReplicas),
@@ -681,8 +686,8 @@ var _ = Describe("Etcd", func() {
 						)))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(hvpaFor(class, existingReplicas)))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(hvpaFor(class, existingReplicas, scaleDownUpdateMode)))
 					}),
 				)
 
@@ -719,11 +724,14 @@ var _ = Describe("Etcd", func() {
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(networkPolicy))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj *druidv1alpha1.Etcd, _ client.Patch, _ ...client.PatchOption) {
+						// ignore status when comparing
+						obj.Status = druidv1alpha1.EtcdStatus{}
+
 						Expect(obj).To(DeepEqual(etcdObjFor(
 							class,
 							1,
@@ -735,8 +743,8 @@ var _ = Describe("Etcd", func() {
 						)))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(hvpaFor(class, 1, scaleDownUpdateMode)))
 					}),
 				)
 
@@ -800,11 +808,11 @@ var _ = Describe("Etcd", func() {
 					}),
 
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(networkPolicy))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 						Expect(obj).To(DeepEqual(etcdObjFor(
 							class,
 							1,
@@ -816,51 +824,60 @@ var _ = Describe("Etcd", func() {
 						)))
 					}),
 					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(hvpaFor(class, 1, scaleDownUpdateMode)))
 					}),
 				)
 
 				Expect(etcd.Deploy(ctx)).To(Succeed())
 			})
 
-			It("should successfully deploy (important etcd)", func() {
-				oldTimeNow := TimeNow
-				defer func() { TimeNow = oldTimeNow }()
-				TimeNow = func() time.Time { return now }
+			for _, shootPurpose := range []gardencorev1beta1.ShootPurpose{gardencorev1beta1.ShootPurposeEvaluation, gardencorev1beta1.ShootPurposeProduction} {
+				var purpose = shootPurpose
+				It(fmt.Sprintf("should successfully deploy (important etcd): purpose = %q", purpose), func() {
+					oldTimeNow := TimeNow
+					defer func() { TimeNow = oldTimeNow }()
+					TimeNow = func() time.Time { return now }
 
-				class := ClassImportant
-				etcd = New(c, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
-				setSecretsAndHVPAConfig()
+					class := ClassImportant
 
-				gomock.InOrder(
-					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
-					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
+					updateMode := hvpav1alpha1.UpdateModeMaintenanceWindow
+					if purpose == gardencorev1beta1.ShootPurposeProduction {
+						updateMode = hvpav1alpha1.UpdateModeOff
+					}
 
-					c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(networkPolicy))
-					}),
-					c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(etcdObjFor(
-							class,
-							1,
-							nil,
-							"",
-							"",
-							nil,
-							nil,
-						)))
-					}),
-					c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
-					}),
-				)
+					etcd = New(c, log, testNamespace, testRole, class, retainReplicas, storageCapacity, &defragmentationSchedule)
+					getSetSecretsAndHVPAConfigFunc(updateMode)()
 
-				Expect(etcd.Deploy(ctx)).To(Succeed())
-			})
+					gomock.InOrder(
+						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
+						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
+
+						c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(networkPolicy))
+						}),
+						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(etcdObjFor(
+								class,
+								1,
+								nil,
+								"",
+								"",
+								nil,
+								nil,
+							)))
+						}),
+						c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(hvpaFor(class, 1, updateMode)))
+						}),
+					)
+
+					Expect(etcd.Deploy(ctx)).To(Succeed())
+				})
+			}
 
 			Context("with backup", func() {
 				var backupConfig = &BackupConfig{
@@ -885,11 +902,11 @@ var _ = Describe("Etcd", func() {
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 							Expect(obj).To(DeepEqual(networkPolicy))
 						}),
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 							Expect(obj).To(DeepEqual(etcdObjFor(
 								class,
 								1,
@@ -901,8 +918,8 @@ var _ = Describe("Etcd", func() {
 							)))
 						}),
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(hvpaFor(class, 1, scaleDownUpdateMode)))
 						}),
 					)
 
@@ -939,11 +956,11 @@ var _ = Describe("Etcd", func() {
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&appsv1.StatefulSet{})).Return(apierrors.NewNotFound(schema.GroupResource{}, "")),
 
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, networkPolicyName), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 							Expect(obj).To(DeepEqual(networkPolicy))
 						}),
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, etcdName), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
 							Expect(obj).To(DeepEqual(etcdObjFor(
 								class,
 								1,
@@ -955,8 +972,8 @@ var _ = Describe("Etcd", func() {
 							)))
 						}),
 						c.EXPECT().Get(ctx, kutil.Key(testNamespace, hvpaName), gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(hvpaFor(class, 1)))
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&hvpav1alpha1.Hvpa{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(hvpaFor(class, 1, scaleDownUpdateMode)))
 						}),
 					)
 

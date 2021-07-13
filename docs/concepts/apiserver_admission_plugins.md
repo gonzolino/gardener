@@ -34,10 +34,17 @@ Usually, regular project members are not bound to this custom verb, allowing the
 
 _(enabled by default)_
 
-This admission controller reacts on `DELETE` operations for `Project`s and `Shoot`s.
+This admission controller reacts on `DELETE` operations for `Project`s and `Shoot`s and `ShootState`s.
 It validates that the respective resource is annotated with a deletion confirmation annotation, namely `confirmation.gardener.cloud/deletion=true`.
 Only if this annotation is present it allows the `DELETE` operation to pass.
 This prevents users from accidental/undesired deletions.
+
+## `ExposureClass`
+
+_(enabled by default)_
+
+This admission controller reacts on `Create` operations for `Shoots`s.
+It mutates `Shoot` resources which has an `ExposureClass` referenced by merging their both `shootSelectors` and/or `tolerations` into the `Shoot` resource.
 
 ## `ExtensionValidator`
 
@@ -54,6 +61,15 @@ _(enabled by default)_
 This admission controller reacts on `CREATE` and `UPDATE` operations for `Plant`s.
 It sets the `gardener.cloud/created-by` annotation for newly created `Plant` resources.
 Also, it prevents creating new `Plant` resources in `Project`s that are already have a deletion timestamp.
+
+## `ProjectValidator`
+
+_(enabled by default)_
+
+This admission controller reacts on `CREATE` operations for `Project`s.
+It prevents creating `Project`s with a non-empty `.spec.namespace` if the value in `.spec.namespace` does not start with `garden-`.
+
+⚠️ This admission plugin will be removed in a future release and its business logic will be incorporated into the static validation of the `gardener-apiserver`.
 
 ## `ResourceQuota`
 
@@ -109,14 +125,6 @@ by setting `spec.kubernetes.verticalPodAutoscaler.enabled=true` for newly create
 Already existing Shoots and new Shoots that explicitly disable VPA (`spec.kubernetes.verticalPodAutoscaler.enabled=false`)
 will not be affected by this admission plugin.
 
-## `ShootStateDeletionValidator`
-
-_(enabled by default)_
-
-This admission controller reacts on `DELETE` operations for `ShootState`s.
-It prevents the deletion of the respective `ShootState` resource in case the corresponding `Shoot` resource does still exist in the system.
-This prevents losing the shoot's data required to recover it / migrate its control plane to a new seed cluster.
-
 ## `ShootTolerationRestriction`
 
 _(enabled by default)_
@@ -133,3 +141,26 @@ This admission controller reacts on `CREATE` and `UPDATE` operations for `Shoot`
 It validates certain configurations in the specification against the referred `CloudProfile` (e.g., machine images, machine types, used Kubernetes version, ...).
 Generally, it performs validations that cannot be handled by the static API validation due to their dynamic nature (e.g., when something needs to be checked against referred resources).
 Additionally, it takes over certain defaulting tasks (e.g., default machine image for worker pools).
+
+## `ShootManagedSeed`
+
+_(enabled by default)_
+
+This admission controller reacts on `DELETE` operations for `Shoot`s.
+It rejects the deletion if the `Shoot` is referred to by a `ManagedSeed`.
+
+## `ManagedSeedValidator`
+
+_(enabled by default)_
+
+This admission controller reacts on `CREATE` and `UPDATE` operations for `ManagedSeeds`s.
+It validates certain configuration values in the specification against the referred `Shoot`, for example Seed provider, network ranges, DNS domain, etc.
+Similarly to `ShootValidator`, it performs validations that cannot be handled by the static API validation due to their dynamic nature.
+Additionally, it performs certain defaulting tasks, making sure that configuration values that are not specified are defaulted to the values of the referred `Shoot`, for example Seed provider, network ranges, DNS domain, etc.
+
+## `ManagedSeedShoot`
+
+_(enabled by default)_
+
+This admission controller reacts on `DELETE` operations for `ManagedSeed`s.
+It rejects the deletion if there are `Shoot`s that are scheduled onto the `Seed` that is registered by the `ManagedSeed`.

@@ -18,9 +18,11 @@ import (
 	"context"
 	"path/filepath"
 
+	v1alpha1constants "github.com/gardener/gardener/pkg/apis/core/v1alpha1/constants"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 
+	networkingv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,6 +45,8 @@ type IngressValues struct {
 	Image           string            `json:"image,omitempty"`
 	Annotations     map[string]string `json:"annotations,omitempty"`
 	IstiodNamespace string            `json:"istiodNamespace,omitempty"`
+	LoadBalancerIP  *string           `json:"loadBalancerIP,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
 	// Ports is a list of all Ports the istio-ingress gateways is listening on.
 	// Port 15021 and 15000 cannot be used.
 	Ports []corev1.ServicePort `json:"ports,omitempty"`
@@ -68,15 +72,21 @@ func NewIngressGateway(
 }
 
 func (i *ingress) Deploy(ctx context.Context) error {
+	// TODO(mvladev): Rotate this on on every istio version upgrade.
+	for _, filterName := range []string{"tcp-metadata-exchange-1.8", "tcp-stats-filter-1.8"} {
+		if err := crclient.IgnoreNotFound(i.client.Delete(ctx, &networkingv1alpha3.EnvoyFilter{
+			ObjectMeta: metav1.ObjectMeta{Name: filterName, Namespace: i.namespace},
+		})); err != nil {
+			return err
+		}
+	}
+
 	if err := i.client.Create(
 		ctx,
 		&corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: i.namespace,
-				Labels: map[string]string{
-					"istio-operator-managed": "Reconcile",
-					"istio-injection":        "disabled",
-				},
+				Name:   i.namespace,
+				Labels: getIngressGatewayNamespaceLabels(i.values.Labels),
 			},
 		},
 	); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -100,4 +110,20 @@ func (i *ingress) Wait(ctx context.Context) error {
 
 func (i *ingress) WaitCleanup(ctx context.Context) error {
 	return nil
+}
+
+func getIngressGatewayNamespaceLabels(labels map[string]string) map[string]string {
+	var namespaceLabels = map[string]string{
+		"istio-operator-managed": "Reconcile",
+		"istio-injection":        "disabled",
+	}
+
+	if value, ok := labels[v1alpha1constants.GardenRole]; ok && value == v1alpha1constants.GardenRoleExposureClassHandler {
+		namespaceLabels[v1alpha1constants.GardenRole] = v1alpha1constants.GardenRoleExposureClassHandler
+	}
+	if value, ok := labels[v1alpha1constants.LabelExposureClassHandlerName]; ok {
+		namespaceLabels[v1alpha1constants.LabelExposureClassHandlerName] = value
+	}
+
+	return namespaceLabels
 }

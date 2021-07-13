@@ -61,6 +61,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddGeneratedConversionFunc((*BastionControllerConfiguration)(nil), (*config.BastionControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha1_BastionControllerConfiguration_To_config_BastionControllerConfiguration(a.(*BastionControllerConfiguration), b.(*config.BastionControllerConfiguration), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*config.BastionControllerConfiguration)(nil), (*BastionControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_config_BastionControllerConfiguration_To_v1alpha1_BastionControllerConfiguration(a.(*config.BastionControllerConfiguration), b.(*BastionControllerConfiguration), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddGeneratedConversionFunc((*ConditionThreshold)(nil), (*config.ConditionThreshold)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha1_ConditionThreshold_To_config_ConditionThreshold(a.(*ConditionThreshold), b.(*config.ConditionThreshold), scope)
 	}); err != nil {
@@ -98,6 +108,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*config.ControllerInstallationRequiredControllerConfiguration)(nil), (*ControllerInstallationRequiredControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_config_ControllerInstallationRequiredControllerConfiguration_To_v1alpha1_ControllerInstallationRequiredControllerConfiguration(a.(*config.ControllerInstallationRequiredControllerConfiguration), b.(*ControllerInstallationRequiredControllerConfiguration), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*ExposureClassHandler)(nil), (*config.ExposureClassHandler)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha1_ExposureClassHandler_To_config_ExposureClassHandler(a.(*ExposureClassHandler), b.(*config.ExposureClassHandler), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*config.ExposureClassHandler)(nil), (*ExposureClassHandler)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_config_ExposureClassHandler_To_v1alpha1_ExposureClassHandler(a.(*config.ExposureClassHandler), b.(*ExposureClassHandler), scope)
 	}); err != nil {
 		return err
 	}
@@ -168,6 +188,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*config.LeaderElectionConfiguration)(nil), (*LeaderElectionConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_config_LeaderElectionConfiguration_To_v1alpha1_LeaderElectionConfiguration(a.(*config.LeaderElectionConfiguration), b.(*LeaderElectionConfiguration), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*LoadBalancerServiceConfig)(nil), (*config.LoadBalancerServiceConfig)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig(a.(*LoadBalancerServiceConfig), b.(*config.LoadBalancerServiceConfig), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*config.LoadBalancerServiceConfig)(nil), (*LoadBalancerServiceConfig)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig(a.(*config.LoadBalancerServiceConfig), b.(*LoadBalancerServiceConfig), scope)
 	}); err != nil {
 		return err
 	}
@@ -321,6 +351,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddGeneratedConversionFunc((*ShootNodeLogging)(nil), (*config.ShootNodeLogging)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha1_ShootNodeLogging_To_config_ShootNodeLogging(a.(*ShootNodeLogging), b.(*config.ShootNodeLogging), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddGeneratedConversionFunc((*config.ShootNodeLogging)(nil), (*ShootNodeLogging)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_config_ShootNodeLogging_To_v1alpha1_ShootNodeLogging(a.(*config.ShootNodeLogging), b.(*ShootNodeLogging), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddGeneratedConversionFunc((*ShootStateSyncControllerConfiguration)(nil), (*config.ShootStateSyncControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha1_ShootStateSyncControllerConfiguration_To_config_ShootStateSyncControllerConfiguration(a.(*ShootStateSyncControllerConfiguration), b.(*config.ShootStateSyncControllerConfiguration), scope)
 	}); err != nil {
@@ -408,6 +448,26 @@ func Convert_config_BackupEntryControllerConfiguration_To_v1alpha1_BackupEntryCo
 	return autoConvert_config_BackupEntryControllerConfiguration_To_v1alpha1_BackupEntryControllerConfiguration(in, out, s)
 }
 
+func autoConvert_v1alpha1_BastionControllerConfiguration_To_config_BastionControllerConfiguration(in *BastionControllerConfiguration, out *config.BastionControllerConfiguration, s conversion.Scope) error {
+	out.ConcurrentSyncs = (*int)(unsafe.Pointer(in.ConcurrentSyncs))
+	return nil
+}
+
+// Convert_v1alpha1_BastionControllerConfiguration_To_config_BastionControllerConfiguration is an autogenerated conversion function.
+func Convert_v1alpha1_BastionControllerConfiguration_To_config_BastionControllerConfiguration(in *BastionControllerConfiguration, out *config.BastionControllerConfiguration, s conversion.Scope) error {
+	return autoConvert_v1alpha1_BastionControllerConfiguration_To_config_BastionControllerConfiguration(in, out, s)
+}
+
+func autoConvert_config_BastionControllerConfiguration_To_v1alpha1_BastionControllerConfiguration(in *config.BastionControllerConfiguration, out *BastionControllerConfiguration, s conversion.Scope) error {
+	out.ConcurrentSyncs = (*int)(unsafe.Pointer(in.ConcurrentSyncs))
+	return nil
+}
+
+// Convert_config_BastionControllerConfiguration_To_v1alpha1_BastionControllerConfiguration is an autogenerated conversion function.
+func Convert_config_BastionControllerConfiguration_To_v1alpha1_BastionControllerConfiguration(in *config.BastionControllerConfiguration, out *BastionControllerConfiguration, s conversion.Scope) error {
+	return autoConvert_config_BastionControllerConfiguration_To_v1alpha1_BastionControllerConfiguration(in, out, s)
+}
+
 func autoConvert_v1alpha1_ConditionThreshold_To_config_ConditionThreshold(in *ConditionThreshold, out *config.ConditionThreshold, s conversion.Scope) error {
 	out.Type = in.Type
 	out.Duration = in.Duration
@@ -490,6 +550,34 @@ func autoConvert_config_ControllerInstallationRequiredControllerConfiguration_To
 // Convert_config_ControllerInstallationRequiredControllerConfiguration_To_v1alpha1_ControllerInstallationRequiredControllerConfiguration is an autogenerated conversion function.
 func Convert_config_ControllerInstallationRequiredControllerConfiguration_To_v1alpha1_ControllerInstallationRequiredControllerConfiguration(in *config.ControllerInstallationRequiredControllerConfiguration, out *ControllerInstallationRequiredControllerConfiguration, s conversion.Scope) error {
 	return autoConvert_config_ControllerInstallationRequiredControllerConfiguration_To_v1alpha1_ControllerInstallationRequiredControllerConfiguration(in, out, s)
+}
+
+func autoConvert_v1alpha1_ExposureClassHandler_To_config_ExposureClassHandler(in *ExposureClassHandler, out *config.ExposureClassHandler, s conversion.Scope) error {
+	out.Name = in.Name
+	if err := Convert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig(&in.LoadBalancerService, &out.LoadBalancerService, s); err != nil {
+		return err
+	}
+	out.SNI = (*config.SNI)(unsafe.Pointer(in.SNI))
+	return nil
+}
+
+// Convert_v1alpha1_ExposureClassHandler_To_config_ExposureClassHandler is an autogenerated conversion function.
+func Convert_v1alpha1_ExposureClassHandler_To_config_ExposureClassHandler(in *ExposureClassHandler, out *config.ExposureClassHandler, s conversion.Scope) error {
+	return autoConvert_v1alpha1_ExposureClassHandler_To_config_ExposureClassHandler(in, out, s)
+}
+
+func autoConvert_config_ExposureClassHandler_To_v1alpha1_ExposureClassHandler(in *config.ExposureClassHandler, out *ExposureClassHandler, s conversion.Scope) error {
+	out.Name = in.Name
+	if err := Convert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig(&in.LoadBalancerService, &out.LoadBalancerService, s); err != nil {
+		return err
+	}
+	out.SNI = (*SNI)(unsafe.Pointer(in.SNI))
+	return nil
+}
+
+// Convert_config_ExposureClassHandler_To_v1alpha1_ExposureClassHandler is an autogenerated conversion function.
+func Convert_config_ExposureClassHandler_To_v1alpha1_ExposureClassHandler(in *config.ExposureClassHandler, out *ExposureClassHandler, s conversion.Scope) error {
+	return autoConvert_config_ExposureClassHandler_To_v1alpha1_ExposureClassHandler(in, out, s)
 }
 
 func autoConvert_v1alpha1_FluentBit_To_config_FluentBit(in *FluentBit, out *config.FluentBit, s conversion.Scope) error {
@@ -632,7 +720,6 @@ func autoConvert_v1alpha1_GardenletConfiguration_To_config_GardenletConfiguratio
 	} else {
 		out.SeedConfig = nil
 	}
-	out.SeedSelector = (*v1.LabelSelector)(unsafe.Pointer(in.SeedSelector))
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
 		*out = new(config.Logging)
@@ -643,6 +730,7 @@ func autoConvert_v1alpha1_GardenletConfiguration_To_config_GardenletConfiguratio
 		out.Logging = nil
 	}
 	out.SNI = (*config.SNI)(unsafe.Pointer(in.SNI))
+	out.ExposureClassHandlers = *(*[]config.ExposureClassHandler)(unsafe.Pointer(&in.ExposureClassHandlers))
 	return nil
 }
 
@@ -703,7 +791,6 @@ func autoConvert_config_GardenletConfiguration_To_v1alpha1_GardenletConfiguratio
 	} else {
 		out.SeedConfig = nil
 	}
-	out.SeedSelector = (*v1.LabelSelector)(unsafe.Pointer(in.SeedSelector))
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
 		*out = new(Logging)
@@ -714,6 +801,7 @@ func autoConvert_config_GardenletConfiguration_To_v1alpha1_GardenletConfiguratio
 		out.Logging = nil
 	}
 	out.SNI = (*SNI)(unsafe.Pointer(in.SNI))
+	out.ExposureClassHandlers = *(*[]ExposureClassHandler)(unsafe.Pointer(&in.ExposureClassHandlers))
 	return nil
 }
 
@@ -725,6 +813,7 @@ func Convert_config_GardenletConfiguration_To_v1alpha1_GardenletConfiguration(in
 func autoConvert_v1alpha1_GardenletControllerConfiguration_To_config_GardenletControllerConfiguration(in *GardenletControllerConfiguration, out *config.GardenletControllerConfiguration, s conversion.Scope) error {
 	out.BackupBucket = (*config.BackupBucketControllerConfiguration)(unsafe.Pointer(in.BackupBucket))
 	out.BackupEntry = (*config.BackupEntryControllerConfiguration)(unsafe.Pointer(in.BackupEntry))
+	out.Bastion = (*config.BastionControllerConfiguration)(unsafe.Pointer(in.Bastion))
 	out.ControllerInstallation = (*config.ControllerInstallationControllerConfiguration)(unsafe.Pointer(in.ControllerInstallation))
 	out.ControllerInstallationCare = (*config.ControllerInstallationCareControllerConfiguration)(unsafe.Pointer(in.ControllerInstallationCare))
 	out.ControllerInstallationRequired = (*config.ControllerInstallationRequiredControllerConfiguration)(unsafe.Pointer(in.ControllerInstallationRequired))
@@ -745,6 +834,7 @@ func Convert_v1alpha1_GardenletControllerConfiguration_To_config_GardenletContro
 func autoConvert_config_GardenletControllerConfiguration_To_v1alpha1_GardenletControllerConfiguration(in *config.GardenletControllerConfiguration, out *GardenletControllerConfiguration, s conversion.Scope) error {
 	out.BackupBucket = (*BackupBucketControllerConfiguration)(unsafe.Pointer(in.BackupBucket))
 	out.BackupEntry = (*BackupEntryControllerConfiguration)(unsafe.Pointer(in.BackupEntry))
+	out.Bastion = (*BastionControllerConfiguration)(unsafe.Pointer(in.Bastion))
 	out.ControllerInstallation = (*ControllerInstallationControllerConfiguration)(unsafe.Pointer(in.ControllerInstallation))
 	out.ControllerInstallationCare = (*ControllerInstallationCareControllerConfiguration)(unsafe.Pointer(in.ControllerInstallationCare))
 	out.ControllerInstallationRequired = (*ControllerInstallationRequiredControllerConfiguration)(unsafe.Pointer(in.ControllerInstallationRequired))
@@ -816,6 +906,26 @@ func Convert_config_LeaderElectionConfiguration_To_v1alpha1_LeaderElectionConfig
 	return autoConvert_config_LeaderElectionConfiguration_To_v1alpha1_LeaderElectionConfiguration(in, out, s)
 }
 
+func autoConvert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig(in *LoadBalancerServiceConfig, out *config.LoadBalancerServiceConfig, s conversion.Scope) error {
+	out.Annotations = *(*map[string]string)(unsafe.Pointer(&in.Annotations))
+	return nil
+}
+
+// Convert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig is an autogenerated conversion function.
+func Convert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig(in *LoadBalancerServiceConfig, out *config.LoadBalancerServiceConfig, s conversion.Scope) error {
+	return autoConvert_v1alpha1_LoadBalancerServiceConfig_To_config_LoadBalancerServiceConfig(in, out, s)
+}
+
+func autoConvert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig(in *config.LoadBalancerServiceConfig, out *LoadBalancerServiceConfig, s conversion.Scope) error {
+	out.Annotations = *(*map[string]string)(unsafe.Pointer(&in.Annotations))
+	return nil
+}
+
+// Convert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig is an autogenerated conversion function.
+func Convert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig(in *config.LoadBalancerServiceConfig, out *LoadBalancerServiceConfig, s conversion.Scope) error {
+	return autoConvert_config_LoadBalancerServiceConfig_To_v1alpha1_LoadBalancerServiceConfig(in, out, s)
+}
+
 func autoConvert_v1alpha1_Logging_To_config_Logging(in *Logging, out *config.Logging, s conversion.Scope) error {
 	out.FluentBit = (*config.FluentBit)(unsafe.Pointer(in.FluentBit))
 	if in.Loki != nil {
@@ -827,6 +937,7 @@ func autoConvert_v1alpha1_Logging_To_config_Logging(in *Logging, out *config.Log
 	} else {
 		out.Loki = nil
 	}
+	out.ShootNodeLogging = (*config.ShootNodeLogging)(unsafe.Pointer(in.ShootNodeLogging))
 	return nil
 }
 
@@ -846,6 +957,7 @@ func autoConvert_config_Logging_To_v1alpha1_Logging(in *config.Logging, out *Log
 	} else {
 		out.Loki = nil
 	}
+	out.ShootNodeLogging = (*ShootNodeLogging)(unsafe.Pointer(in.ShootNodeLogging))
 	return nil
 }
 
@@ -960,6 +1072,7 @@ func Convert_config_SNI_To_v1alpha1_SNI(in *config.SNI, out *SNI, s conversion.S
 
 func autoConvert_v1alpha1_SNIIngress_To_config_SNIIngress(in *SNIIngress, out *config.SNIIngress, s conversion.Scope) error {
 	out.ServiceName = (*string)(unsafe.Pointer(in.ServiceName))
+	out.ServiceExternalIP = (*string)(unsafe.Pointer(in.ServiceExternalIP))
 	out.Namespace = (*string)(unsafe.Pointer(in.Namespace))
 	out.Labels = *(*map[string]string)(unsafe.Pointer(&in.Labels))
 	return nil
@@ -972,6 +1085,7 @@ func Convert_v1alpha1_SNIIngress_To_config_SNIIngress(in *SNIIngress, out *confi
 
 func autoConvert_config_SNIIngress_To_v1alpha1_SNIIngress(in *config.SNIIngress, out *SNIIngress, s conversion.Scope) error {
 	out.ServiceName = (*string)(unsafe.Pointer(in.ServiceName))
+	out.ServiceExternalIP = (*string)(unsafe.Pointer(in.ServiceExternalIP))
 	out.Namespace = (*string)(unsafe.Pointer(in.Namespace))
 	out.Labels = *(*map[string]string)(unsafe.Pointer(&in.Labels))
 	return nil
@@ -1198,6 +1312,26 @@ func autoConvert_config_ShootControllerConfiguration_To_v1alpha1_ShootController
 // Convert_config_ShootControllerConfiguration_To_v1alpha1_ShootControllerConfiguration is an autogenerated conversion function.
 func Convert_config_ShootControllerConfiguration_To_v1alpha1_ShootControllerConfiguration(in *config.ShootControllerConfiguration, out *ShootControllerConfiguration, s conversion.Scope) error {
 	return autoConvert_config_ShootControllerConfiguration_To_v1alpha1_ShootControllerConfiguration(in, out, s)
+}
+
+func autoConvert_v1alpha1_ShootNodeLogging_To_config_ShootNodeLogging(in *ShootNodeLogging, out *config.ShootNodeLogging, s conversion.Scope) error {
+	out.ShootPurposes = *(*[]core.ShootPurpose)(unsafe.Pointer(&in.ShootPurposes))
+	return nil
+}
+
+// Convert_v1alpha1_ShootNodeLogging_To_config_ShootNodeLogging is an autogenerated conversion function.
+func Convert_v1alpha1_ShootNodeLogging_To_config_ShootNodeLogging(in *ShootNodeLogging, out *config.ShootNodeLogging, s conversion.Scope) error {
+	return autoConvert_v1alpha1_ShootNodeLogging_To_config_ShootNodeLogging(in, out, s)
+}
+
+func autoConvert_config_ShootNodeLogging_To_v1alpha1_ShootNodeLogging(in *config.ShootNodeLogging, out *ShootNodeLogging, s conversion.Scope) error {
+	out.ShootPurposes = *(*[]v1beta1.ShootPurpose)(unsafe.Pointer(&in.ShootPurposes))
+	return nil
+}
+
+// Convert_config_ShootNodeLogging_To_v1alpha1_ShootNodeLogging is an autogenerated conversion function.
+func Convert_config_ShootNodeLogging_To_v1alpha1_ShootNodeLogging(in *config.ShootNodeLogging, out *ShootNodeLogging, s conversion.Scope) error {
+	return autoConvert_config_ShootNodeLogging_To_v1alpha1_ShootNodeLogging(in, out, s)
 }
 
 func autoConvert_v1alpha1_ShootStateSyncControllerConfiguration_To_config_ShootStateSyncControllerConfiguration(in *ShootStateSyncControllerConfiguration, out *config.ShootStateSyncControllerConfiguration, s conversion.Scope) error {

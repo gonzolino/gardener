@@ -21,10 +21,10 @@ import (
 	"reflect"
 
 	gardencorev1alpha1helper "github.com/gardener/gardener/pkg/apis/core/v1alpha1/helper"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/operation/etcdencryption"
 	"github.com/gardener/gardener/pkg/utils"
-	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	"github.com/gardener/gardener/pkg/utils/infodata"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 
@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	apiserverconfigv1 "k8s.io/apiserver/pkg/apis/config/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // GenerateEncryptionConfiguration generates new encryption configuration data or syncs it from the etcd encryption configuration secret if it already exists.
@@ -82,7 +81,7 @@ func (b *Botanist) ApplyEncryptionConfiguration(ctx context.Context) error {
 	}
 
 	conf = etcdencryption.NewEncryptionConfiguration(b.Shoot.ETCDEncryption)
-	_, err := controllerutil.CreateOrUpdate(ctx, b.K8sSeedClient.Client(), secret, func() error {
+	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, b.K8sSeedClient.Client(), secret, func() error {
 		if b.Shoot.ETCDEncryption.ForcePlainTextResources {
 			kutil.SetMetaDataAnnotation(secret, common.EtcdEncryptionForcePlaintextAnnotationName, "true")
 		}
@@ -104,18 +103,6 @@ func (b *Botanist) ApplyEncryptionConfiguration(ctx context.Context) error {
 	}()
 
 	return nil
-}
-
-// RemoveOldETCDEncryptionSecretFromGardener removes the etcd encryption configuration secret from the Shoot's namespace in the garden cluster as it is no longer necessary.
-// This step can be removed in the future after all secrets have been cleaned up.
-func (b *Botanist) RemoveOldETCDEncryptionSecretFromGardener(ctx context.Context) error {
-	etcdSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      gutil.GardenEtcdEncryptionSecretName(b.Shoot.Info.Name),
-			Namespace: b.Shoot.Info.Namespace,
-		},
-	}
-	return client.IgnoreNotFound(b.K8sGardenClient.Client().Delete(ctx, etcdSecret))
 }
 
 func confChecksum(conf *apiserverconfigv1.EncryptionConfiguration) (string, error) {

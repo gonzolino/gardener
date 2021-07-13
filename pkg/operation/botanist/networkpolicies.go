@@ -15,8 +15,12 @@
 package botanist
 
 import (
+	"fmt"
+	"net"
+
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/networkpolicies"
+	"github.com/gardener/gardener/pkg/operation/common"
 
 	"k8s.io/utils/pointer"
 )
@@ -56,6 +60,15 @@ func (b *Botanist) DefaultNetworkPolicies(sniPhase component.Phase) (component.D
 		return nil, err
 	}
 
+	_, seedServiceCIDR, err := net.ParseCIDR(b.Seed.Info.Spec.Networks.Services)
+	if err != nil {
+		return nil, err
+	}
+	seedDNSServerAddress, err := common.ComputeOffsetIP(seedServiceCIDR, 10)
+	if err != nil {
+		return nil, fmt.Errorf("cannot calculate CoreDNS ClusterIP: %v", err)
+	}
+
 	return NewNetworkPoliciesDeployer(
 		b.K8sSeedClient.Client(),
 		b.Shoot.SeedNamespace,
@@ -69,9 +82,8 @@ func (b *Botanist) DefaultNetworkPolicies(sniPhase component.Phase) (component.D
 				BlockedAddresses:     b.Seed.Info.Spec.Networks.BlockCIDRs,
 				PrivateNetworkPeers:  privateNetworkPeers,
 				DenyAllTraffic:       true,
-				NodeLocalDNSEnabled:  b.Shoot.NodeLocalDNSEnabled,
-				NodeLocalIPVSAddress: pointer.StringPtr(NodeLocalIPVSAddress),
-				DNSServerAddress:     pointer.StringPtr(b.Shoot.Networks.CoreDNS.String()),
+				NodeLocalIPVSAddress: pointer.String(common.NodeLocalIPVSAddress),
+				DNSServerAddress:     pointer.String(seedDNSServerAddress.String()),
 			},
 		},
 	), nil

@@ -226,7 +226,7 @@ message BackupEntryStatus {
 
 // CRI contains information about the Container Runtimes.
 message CRI {
-  // The name of the CRI library
+  // The name of the CRI library. Supported values are `docker` and `containerd`.
   optional string name = 1;
 
   // ContainerRuntimes is the list of the required container runtimes supported for a worker pool.
@@ -634,6 +634,43 @@ message ExpirableVersion {
   optional string classification = 3;
 }
 
+// ExposureClass represents a control plane endpoint exposure strategy.
+message ExposureClass {
+  // Standard object metadata.
+  // +optional
+  optional k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta metadata = 1;
+
+  // Handler is the name of the handler which applies the control plane endpoint exposure strategy.
+  optional string handler = 2;
+
+  // Scheduling holds information how to select applicable Seed's for ExposureClass usage.
+  // +optional
+  optional ExposureClassScheduling scheduling = 3;
+}
+
+// ExposureClassList is a collection of ExposureClass.
+message ExposureClassList {
+  // Standard list object metadata.
+  // +optional
+  optional k8s.io.apimachinery.pkg.apis.meta.v1.ListMeta metadata = 1;
+
+  // Items is the list of ExposureClasses.
+  repeated ExposureClass items = 2;
+}
+
+// ExposureClassScheduling holds information to select applicable Seed's for ExposureClass usage.
+message ExposureClassScheduling {
+  // SeedSelector is an optional label selector for Seed's which are suitable to use the ExposureClass.
+  // +optional
+  optional SeedSelector seedSelector = 1;
+
+  // Tolerations contains the tolerations for taints on Seed clusters.
+  // +patchMergeKey=key
+  // +patchStrategy=merge
+  // +optional
+  repeated Toleration tolerations = 2;
+}
+
 // Extension contains type and provider information for Shoot extensions.
 message Extension {
   // Type is the type of the extension resource.
@@ -836,6 +873,12 @@ message KubeAPIServerConfig {
   // Requests contains configuration for request-specific settings for the kube-apiserver.
   // +optional
   optional KubeAPIServerRequests requests = 10;
+
+  // EnableAnonymousAuthentication defines whether anonymous requests to the secure port
+  // of the API server should be allowed (flag `--anonymous-auth`).
+  // See: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/
+  // +optional
+  optional bool enableAnonymousAuthentication = 11;
 }
 
 // KubeAPIServerRequests contains configuration for request-specific settings for the kube-apiserver.
@@ -880,6 +923,12 @@ message KubeProxyConfig {
   // defaults to IPTables.
   // +optional
   optional string mode = 2;
+
+  // Enabled indicates whether kube-proxy should be deployed or not.
+  // Depending on the networking extensions switching kube-proxy off might be rejected. Consulting the respective documentation of the used networking extension is recommended before using this field.
+  // defaults to true if not specified.
+  // +optional
+  optional bool enabled = 3;
 }
 
 // KubeSchedulerConfig contains configuration settings for the kube-scheduler.
@@ -979,6 +1028,16 @@ message KubeletConfig {
   // When updating these values, be aware that cgroup resizes may not succeed on active worker nodes. Look for the NodeAllocatableEnforced event to determine if the configuration was applied.
   // +optional
   optional KubeletConfigReserved systemReserved = 15;
+
+  // ImageGCHighThresholdPercent describes the percent of the disk usage which triggers image garbage collection.
+  // +optional
+  // Default: 50
+  optional int32 imageGCHighThresholdPercent = 16;
+
+  // ImageGCLowThresholdPercent describes the percent of the disk to which garbage collection attempts to free.
+  // +optional
+  // Default: 40
+  optional int32 imageGCLowThresholdPercent = 17;
 }
 
 // KubeletConfigEviction contains kubelet eviction thresholds supporting either a resource.Quantity or a percentage based value.
@@ -2149,6 +2208,10 @@ message ShootSpec {
   // +patchStrategy=merge
   // +optional
   repeated Toleration tolerations = 17;
+
+  // ExposureClassName is the optional name of an exposure class to apply a control plane endpoint exposure strategy.
+  // +optional
+  optional string exposureClassName = 18;
 }
 
 // ShootState contains a snapshot of the Shoot's state required to migrate the Shoot's control plane to a new Seed.
@@ -2363,7 +2426,8 @@ message Worker {
   // +optional
   optional string caBundle = 2;
 
-  // CRI contains configurations of CRI support of every machine in the worker pool
+  // CRI contains configurations of CRI support of every machine in the worker pool.
+  // Defaults to a CRI with name `containerd` when the Kubernetes version of the `Shoot` is >= 1.22.
   // +optional
   optional CRI cri = 3;
 

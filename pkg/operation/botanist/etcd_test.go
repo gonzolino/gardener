@@ -36,11 +36,13 @@ import (
 	"github.com/gardener/gardener/pkg/utils/test"
 
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
+	hvpav1alpha1 "github.com/gardener/hvpa-controller/api/v1alpha1"
 	"github.com/golang/mock/gomock"
 	"github.com/hashicorp/go-multierror"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
+	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -107,59 +109,50 @@ var _ = Describe("Etcd", func() {
 				botanist.ManagedSeed = nil
 			})
 
-			It("should successfully create an etcd interface (normal class)", func() {
-				defer test.WithFeatureGate(gardenletfeatures.FeatureGate, features.HVPA, hvpaEnabled)()
-
-				validator := &newEtcdValidator{
-					expectedClient:                  Equal(c),
-					expectedNamespace:               Equal(namespace),
-					expectedRole:                    Equal(role),
-					expectedClass:                   Equal(class),
-					expectedRetainReplicas:          BeFalse(),
-					expectedStorageCapacity:         Equal("10Gi"),
-					expectedDefragmentationSchedule: Equal(pointer.StringPtr("34 12 */3 * *")),
-					expectedHVPAConfig: Equal(&etcd.HVPAConfig{
-						Enabled:               hvpaEnabled,
-						MaintenanceTimeWindow: maintenanceTimeWindow,
-					}),
+			computeUpdateMode := func(class etcd.Class, purpose gardencorev1beta1.ShootPurpose) string {
+				if class == etcd.ClassImportant && purpose == gardencorev1beta1.ShootPurposeProduction {
+					return hvpav1alpha1.UpdateModeOff
 				}
+				return hvpav1alpha1.UpdateModeMaintenanceWindow
+			}
 
-				oldNewEtcd := NewEtcd
-				defer func() { NewEtcd = oldNewEtcd }()
-				NewEtcd = validator.NewEtcd
+			for _, etcdClass := range []etcd.Class{etcd.ClassNormal, etcd.ClassImportant} {
+				for _, shootPurpose := range []gardencorev1beta1.ShootPurpose{gardencorev1beta1.ShootPurposeEvaluation, gardencorev1beta1.ShootPurposeProduction} {
+					var (
+						class   = etcdClass
+						purpose = shootPurpose
+					)
+					It(fmt.Sprintf("should successfully create an etcd interface: class = %q, purpose = %q", class, purpose), func() {
+						defer test.WithFeatureGate(gardenletfeatures.FeatureGate, features.HVPA, hvpaEnabled)()
 
-				etcd, err := botanist.DefaultEtcd(role, class)
-				Expect(etcd).NotTo(BeNil())
-				Expect(err).NotTo(HaveOccurred())
-			})
+						botanist.Shoot.Purpose = purpose
 
-			It("should successfully create an etcd interface (important class)", func() {
-				class := etcd.ClassImportant
+						validator := &newEtcdValidator{
+							expectedClient:                  Equal(c),
+							expectedLogger:                  BeNil(),
+							expectedNamespace:               Equal(namespace),
+							expectedRole:                    Equal(role),
+							expectedClass:                   Equal(class),
+							expectedRetainReplicas:          BeFalse(),
+							expectedStorageCapacity:         Equal("10Gi"),
+							expectedDefragmentationSchedule: Equal(pointer.String("34 12 */3 * *")),
+							expectedHVPAConfig: Equal(&etcd.HVPAConfig{
+								Enabled:               hvpaEnabled,
+								MaintenanceTimeWindow: maintenanceTimeWindow,
+								ScaleDownUpdateMode:   pointer.String(computeUpdateMode(class, purpose)),
+							}),
+						}
 
-				defer test.WithFeatureGate(gardenletfeatures.FeatureGate, features.HVPA, hvpaEnabled)()
+						oldNewEtcd := NewEtcd
+						defer func() { NewEtcd = oldNewEtcd }()
+						NewEtcd = validator.NewEtcd
 
-				validator := &newEtcdValidator{
-					expectedClient:                  Equal(c),
-					expectedNamespace:               Equal(namespace),
-					expectedRole:                    Equal(role),
-					expectedClass:                   Equal(class),
-					expectedRetainReplicas:          BeFalse(),
-					expectedStorageCapacity:         Equal("10Gi"),
-					expectedDefragmentationSchedule: Equal(pointer.StringPtr("34 12 */3 * *")),
-					expectedHVPAConfig: Equal(&etcd.HVPAConfig{
-						Enabled:               hvpaEnabled,
-						MaintenanceTimeWindow: maintenanceTimeWindow,
-					}),
+						etcd, err := botanist.DefaultEtcd(role, class)
+						Expect(etcd).NotTo(BeNil())
+						Expect(err).NotTo(HaveOccurred())
+					})
 				}
-
-				oldNewEtcd := NewEtcd
-				defer func() { NewEtcd = oldNewEtcd }()
-				NewEtcd = validator.NewEtcd
-
-				etcd, err := botanist.DefaultEtcd(role, class)
-				Expect(etcd).NotTo(BeNil())
-				Expect(err).NotTo(HaveOccurred())
-			})
+			}
 		})
 
 		Context("no HVPAShootedSeed feature gate", func() {
@@ -174,15 +167,17 @@ var _ = Describe("Etcd", func() {
 
 				validator := &newEtcdValidator{
 					expectedClient:                  Equal(c),
+					expectedLogger:                  BeNil(),
 					expectedNamespace:               Equal(namespace),
 					expectedRole:                    Equal(role),
 					expectedClass:                   Equal(class),
 					expectedRetainReplicas:          BeFalse(),
 					expectedStorageCapacity:         Equal("10Gi"),
-					expectedDefragmentationSchedule: Equal(pointer.StringPtr("34 12 * * *")),
+					expectedDefragmentationSchedule: Equal(pointer.String("34 12 * * *")),
 					expectedHVPAConfig: Equal(&etcd.HVPAConfig{
 						Enabled:               hvpaForShootedSeedEnabled,
 						MaintenanceTimeWindow: maintenanceTimeWindow,
+						ScaleDownUpdateMode:   pointer.String(hvpav1alpha1.UpdateModeMaintenanceWindow),
 					}),
 				}
 
@@ -202,15 +197,17 @@ var _ = Describe("Etcd", func() {
 
 				validator := &newEtcdValidator{
 					expectedClient:                  Equal(c),
+					expectedLogger:                  BeNil(),
 					expectedNamespace:               Equal(namespace),
 					expectedRole:                    Equal(role),
 					expectedClass:                   Equal(class),
 					expectedRetainReplicas:          BeFalse(),
 					expectedStorageCapacity:         Equal("10Gi"),
-					expectedDefragmentationSchedule: Equal(pointer.StringPtr("34 12 * * *")),
+					expectedDefragmentationSchedule: Equal(pointer.String("34 12 * * *")),
 					expectedHVPAConfig: Equal(&etcd.HVPAConfig{
 						Enabled:               hvpaForShootedSeedEnabled,
 						MaintenanceTimeWindow: maintenanceTimeWindow,
+						ScaleDownUpdateMode:   pointer.String(hvpav1alpha1.UpdateModeMaintenanceWindow),
 					}),
 				}
 
@@ -239,7 +236,7 @@ var _ = Describe("Etcd", func() {
 
 	Describe("#DeployEtcd", func() {
 		var (
-			etcdMain, etcdEvents *mocketcd.MockEtcd
+			etcdMain, etcdEvents *mocketcd.MockInterface
 
 			secretNameCA     = "ca-etcd"
 			secretNameServer = "etcd-server-cert"
@@ -251,7 +248,7 @@ var _ = Describe("Etcd", func() {
 		)
 
 		BeforeEach(func() {
-			etcdMain, etcdEvents = mocketcd.NewMockEtcd(ctrl), mocketcd.NewMockEtcd(ctrl)
+			etcdMain, etcdEvents = mocketcd.NewMockInterface(ctrl), mocketcd.NewMockInterface(ctrl)
 
 			botanist.K8sSeedClient = kubernetesClient
 			botanist.CheckSums = map[string]string{
@@ -455,9 +452,10 @@ var _ = Describe("Etcd", func() {
 })
 
 type newEtcdValidator struct {
-	etcd.Etcd
+	etcd.Interface
 
 	expectedClient                  gomegatypes.GomegaMatcher
+	expectedLogger                  gomegatypes.GomegaMatcher
 	expectedNamespace               gomegatypes.GomegaMatcher
 	expectedRole                    gomegatypes.GomegaMatcher
 	expectedClass                   gomegatypes.GomegaMatcher
@@ -469,14 +467,16 @@ type newEtcdValidator struct {
 
 func (v *newEtcdValidator) NewEtcd(
 	client client.Client,
+	logger logrus.FieldLogger,
 	namespace string,
 	role string,
 	class etcd.Class,
 	retainReplicas bool,
 	storageCapacity string,
 	defragmentationSchedule *string,
-) etcd.Etcd {
+) etcd.Interface {
 	Expect(client).To(v.expectedClient)
+	Expect(logger).To(v.expectedLogger)
 	Expect(namespace).To(v.expectedNamespace)
 	Expect(role).To(v.expectedRole)
 	Expect(class).To(v.expectedClass)

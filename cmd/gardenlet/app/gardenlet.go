@@ -20,14 +20,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/gardener/gardener/cmd/utils"
+	cmdutils "github.com/gardener/gardener/cmd/utils"
 	gardencore "github.com/gardener/gardener/pkg/apis/core"
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -49,7 +48,7 @@ import (
 	"github.com/gardener/gardener/pkg/healthz"
 	"github.com/gardener/gardener/pkg/logger"
 	"github.com/gardener/gardener/pkg/server"
-	gardenerutils "github.com/gardener/gardener/pkg/utils"
+	"github.com/gardener/gardener/pkg/utils"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/secrets"
 
@@ -57,12 +56,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	certificatesv1 "k8s.io/api/certificates/v1"
+	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/client-go/informers"
-	kubeinformers "k8s.io/client-go/informers"
 	kubernetesclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/record"
@@ -112,7 +113,7 @@ func NewOptions() (*Options, error) {
 // loadConfigFromFile loads the content of file and decodes it as a
 // GardenletConfiguration object.
 func (o *Options) loadConfigFromFile(file string) (*config.GardenletConfiguration, error) {
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
@@ -164,11 +165,9 @@ func run(ctx context.Context, o *Options) error {
 	}
 	kubernetes.UseCachedRuntimeClients = gardenletfeatures.FeatureGate.Enabled(features.CachedRuntimeClients)
 
-	if gardenletfeatures.FeatureGate.Enabled(features.ReversedVPN) &&
-		(!gardenletfeatures.FeatureGate.Enabled(features.APIServerSNI) ||
-			gardenletfeatures.FeatureGate.Enabled(features.KonnectivityTunnel)) {
-		return fmt.Errorf("inconsistent feature gate: APIServerSNI is required for ReversedVPN (APIServerSNI: %t, ReversedVPN: %t) and ReversedVPN is not compatible with KonnectivityTunnel (KonnectivityTunnel: %t)",
-			gardenletfeatures.FeatureGate.Enabled(features.APIServerSNI), gardenletfeatures.FeatureGate.Enabled(features.ReversedVPN), gardenletfeatures.FeatureGate.Enabled(features.KonnectivityTunnel))
+	if gardenletfeatures.FeatureGate.Enabled(features.ReversedVPN) && !gardenletfeatures.FeatureGate.Enabled(features.APIServerSNI) {
+		return fmt.Errorf("inconsistent feature gate: APIServerSNI is required for ReversedVPN (APIServerSNI: %t, ReversedVPN: %t)",
+			gardenletfeatures.FeatureGate.Enabled(features.APIServerSNI), gardenletfeatures.FeatureGate.Enabled(features.ReversedVPN))
 	}
 
 	gardenlet, err := NewGardenlet(ctx, o.config)
@@ -224,7 +223,6 @@ type Gardenlet struct {
 	GardenClusterIdentity  string
 	ClientMap              clientmap.ClientMap
 	K8sGardenCoreInformers gardencoreinformers.SharedInformerFactory
-	KubeInformerFactory    informers.SharedInformerFactory
 	Logger                 *logrus.Logger
 	Recorder               record.EventRecorder
 	LeaderElection         *leaderelection.LeaderElectionConfig
@@ -305,9 +303,19 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 		// gardenlet does not have the required RBAC permissions for listing/watching the following resources, so let's prevent any
 		// attempts to cache them
 		WithUncached(
+			&gardencorev1alpha1.ExposureClass{},
+			&gardencorev1alpha1.ShootState{},
+			&gardencorev1beta1.CloudProfile{},
 			&gardencorev1beta1.ControllerDeployment{},
 			&gardencorev1beta1.Project{},
-			&gardencorev1alpha1.ShootState{},
+			&gardencorev1beta1.SecretBinding{},
+			&certificatesv1.CertificateSigningRequest{},
+			&certificatesv1beta1.CertificateSigningRequest{},
+			&coordinationv1.Lease{},
+			&corev1.Namespace{},
+			&corev1.ConfigMap{},
+			&corev1.Event{},
+			&eventsv1.Event{},
 		)
 
 	if seedConfig := cfg.SeedConfig; seedConfig != nil {
@@ -315,7 +323,6 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 	}
 
 	seedClientMapBuilder := clientmapbuilder.NewSeedClientMapBuilder().
-		WithInCluster(cfg.SeedSelector == nil).
 		WithClientConnectionConfig(&cfg.SeedClientConnection.ClientConnectionConfiguration)
 	shootClientMapBuilder := clientmapbuilder.NewShootClientMapBuilder().
 		WithClientConnectionConfig(&cfg.ShootClientConnection.ClientConnectionConfiguration)
@@ -338,7 +345,7 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 	// Delete bootstrap auth data if certificate was newly acquired
 	if len(csrName) > 0 && len(seedName) > 0 {
 		logger.Infof("Deleting bootstrap authentication data used to request a certificate")
-		if err := bootstrap.DeleteBootstrapAuth(ctx, k8sGardenClient.APIReader(), k8sGardenClient.Client(), csrName, seedName); err != nil {
+		if err := bootstrap.DeleteBootstrapAuth(ctx, k8sGardenClient.Client(), k8sGardenClient.Client(), csrName, seedName); err != nil {
 			return nil, err
 		}
 	}
@@ -346,7 +353,7 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 	// Set up leader election if enabled and prepare event recorder.
 	var (
 		leaderElectionConfig *leaderelection.LeaderElectionConfig
-		recorder             = utils.CreateRecorder(k8sGardenClient.Kubernetes(), "gardenlet")
+		recorder             = cmdutils.CreateRecorder(k8sGardenClient.Kubernetes(), "gardenlet")
 	)
 	if cfg.LeaderElection.LeaderElect {
 		seedRestCfg, err := kubernetes.RESTConfigFromClientConnectionConfiguration(&cfg.SeedClientConnection.ClientConnectionConfiguration, nil)
@@ -359,12 +366,12 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 			return nil, fmt.Errorf("failed to create client for leader election: %w", err)
 		}
 
-		leaderElectionConfig, err = utils.MakeLeaderElectionConfig(
+		leaderElectionConfig, err = cmdutils.MakeLeaderElectionConfig(
 			cfg.LeaderElection.LeaderElectionConfiguration,
 			*cfg.LeaderElection.LockObjectNamespace,
 			*cfg.LeaderElection.LockObjectName,
 			k8sSeedClientLeaderElection,
-			utils.CreateRecorder(k8sSeedClientLeaderElection, "gardenlet"),
+			cmdutils.CreateRecorder(k8sSeedClientLeaderElection, "gardenlet"),
 		)
 		if err != nil {
 			return nil, err
@@ -377,7 +384,7 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 	}
 
 	gardenClusterIdentity := &corev1.ConfigMap{}
-	if err := k8sGardenClient.APIReader().Get(ctx, kutil.Key(metav1.NamespaceSystem, v1beta1constants.ClusterIdentity), gardenClusterIdentity); err != nil {
+	if err := k8sGardenClient.Client().Get(ctx, kutil.Key(metav1.NamespaceSystem, v1beta1constants.ClusterIdentity), gardenClusterIdentity); err != nil {
 		return nil, fmt.Errorf("unable to get Gardener`s cluster-identity ConfigMap: %v", err)
 	}
 
@@ -400,7 +407,6 @@ func NewGardenlet(ctx context.Context, cfg *config.GardenletConfiguration) (*Gar
 		Recorder:               recorder,
 		ClientMap:              clientMap,
 		K8sGardenCoreInformers: gardencoreinformers.NewSharedInformerFactory(k8sGardenClient.GardenCore(), 0),
-		KubeInformerFactory:    kubeinformers.NewSharedInformerFactory(k8sGardenClient.Kubernetes(), 0),
 		LeaderElection:         leaderElectionConfig,
 		CertificateManager:     certificateManager,
 	}, nil
@@ -493,7 +499,6 @@ func (g *Gardenlet) startControllers(ctx context.Context) error {
 	return controller.NewGardenletControllerFactory(
 		g.ClientMap,
 		g.K8sGardenCoreInformers,
-		g.KubeInformerFactory,
 		g.Config,
 		g.Identity,
 		g.GardenClusterIdentity,
@@ -554,7 +559,7 @@ func determineGardenletIdentity() (*gardencorev1beta1.Gardener, error) {
 	}
 
 	if gardenletID == "" {
-		gardenletID, err = gardenerutils.GenerateRandomString(64)
+		gardenletID, err = utils.GenerateRandomString(64)
 		if err != nil {
 			return nil, fmt.Errorf("unable to generate gardenletID: %v", err)
 		}

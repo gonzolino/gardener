@@ -46,18 +46,18 @@ const (
 var _ = Describe("seedfilter", func() {
 	var (
 		ctrl *gomock.Controller
-		c    *mockclient.MockClient
+		c    *mockclient.MockReader
 
 		ctx context.Context
 
-		managedSeed *seedmanagementv1alpha1.ManagedSeed
-		shoot       *gardencorev1beta1.Shoot
-		seed        *gardencorev1beta1.Seed
+		managedSeed       *seedmanagementv1alpha1.ManagedSeed
+		shoot             *gardencorev1beta1.Shoot
+		seedOfManagedSeed *gardencorev1beta1.Seed
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
-		c = mockclient.NewMockClient(ctrl)
+		c = mockclient.NewMockReader(ctrl)
 
 		ctx = context.TODO()
 
@@ -78,18 +78,15 @@ var _ = Describe("seedfilter", func() {
 				Namespace: namespace,
 			},
 			Spec: gardencorev1beta1.ShootSpec{
-				SeedName: pointer.StringPtr(seedName),
+				SeedName: pointer.String(seedName),
 			},
 			Status: gardencorev1beta1.ShootStatus{
-				SeedName: pointer.StringPtr(seedName),
+				SeedName: pointer.String(seedName),
 			},
 		}
-		seed = &gardencorev1beta1.Seed{
+		seedOfManagedSeed = &gardencorev1beta1.Seed{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
-				Labels: map[string]string{
-					"test-label": "test",
-				},
 			},
 		}
 	})
@@ -116,11 +113,19 @@ var _ = Describe("seedfilter", func() {
 			)
 		}
 
-		expectGetSeed = func() {
-			c.EXPECT().Get(ctx, kutil.Key(seedName), gomock.AssignableToTypeOf(&gardencorev1beta1.Seed{})).DoAndReturn(
-				func(_ context.Context, _ client.ObjectKey, s *gardencorev1beta1.Seed) error {
-					*s = *seed
+		expectGetManagedSeed = func() {
+			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, ms *seedmanagementv1alpha1.ManagedSeed) error {
+					*ms = *managedSeed
 					return nil
+				},
+			)
+		}
+
+		expectGetManagedSeedNotFound = func() {
+			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(&seedmanagementv1alpha1.ManagedSeed{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, _ *seedmanagementv1alpha1.ManagedSeed) error {
+					return apierrors.NewNotFound(seedmanagementv1alpha1.Resource("ManagedSeed"), name)
 				},
 			)
 		}
@@ -128,91 +133,95 @@ var _ = Describe("seedfilter", func() {
 
 	Describe("#ManagedSeedFilterFunc", func() {
 		It("should return false if the specified object is not a managed seed", func() {
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName, nil)
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName)
 			Expect(f(shoot)).To(BeFalse())
 		})
 
 		It("should return false with a shoot that is not found", func() {
 			expectGetShootNotFound()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName, nil)
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName)
 			Expect(f(managedSeed)).To(BeFalse())
 		})
 
 		It("should return false with a shoot that is not yet scheduled on a seed", func() {
 			shoot.Spec.SeedName = nil
 			expectGetShoot()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName, nil)
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName)
 			Expect(f(managedSeed)).To(BeFalse())
 		})
 
 		It("should return true with a shoot that is scheduled on the specified seed", func() {
 			expectGetShoot()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName, nil)
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName)
 			Expect(f(managedSeed)).To(BeTrue())
 		})
 
 		It("should return true with a shoot that is scheduled on the specified seed (status different from spec)", func() {
-			shoot.Spec.SeedName = pointer.StringPtr("foo")
+			shoot.Spec.SeedName = pointer.String("foo")
 			expectGetShoot()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName, nil)
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, seedName)
 			Expect(f(managedSeed)).To(BeTrue())
 		})
 
 		It("should return false with a shoot that is scheduled on a different seed", func() {
 			expectGetShoot()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, "foo", nil)
-			Expect(f(managedSeed)).To(BeFalse())
-		})
-
-		It("should return true with a shoot that is scheduled on a seed selected by the specified label selector", func() {
-			expectGetShoot()
-			expectGetSeed()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, "", &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"test-label": "test",
-				},
-			})
-			Expect(f(managedSeed)).To(BeTrue())
-		})
-
-		It("should return true with a shoot that is scheduled on a seed selected by the specified label selector (status different from spec)", func() {
-			shoot.Spec.SeedName = pointer.StringPtr("foo")
-			expectGetShoot()
-			expectGetSeed()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, "", &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"test-label": "test",
-				},
-			})
-			Expect(f(managedSeed)).To(BeTrue())
-		})
-
-		It("should return false with a shoot that is scheduled on a seed not selected by the specified label selector", func() {
-			expectGetShoot()
-			expectGetSeed()
-			f := controllerutils.ManagedSeedFilterFunc(ctx, c, "", &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"foo": "bar",
-				},
-			})
+			f := controllerutils.ManagedSeedFilterFunc(ctx, c, "foo")
 			Expect(f(managedSeed)).To(BeFalse())
 		})
 	})
 
+	Describe("#SeedOfManagedSeedFilterFunc", func() {
+		It("should return false if the specified object is not a seed", func() {
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(shoot)).To(BeFalse())
+		})
+
+		It("should return false if the seed is not owned by a managed seed", func() {
+			expectGetManagedSeedNotFound()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(seedOfManagedSeed)).To(BeFalse())
+		})
+
+		It("should return false with a shoot that is not found", func() {
+			expectGetManagedSeed()
+			expectGetShootNotFound()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(seedOfManagedSeed)).To(BeFalse())
+		})
+
+		It("should return false with a shoot that is not yet scheduled on a seed", func() {
+			expectGetManagedSeed()
+			shoot.Spec.SeedName = nil
+			expectGetShoot()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(seedOfManagedSeed)).To(BeFalse())
+		})
+
+		It("should return true with a shoot that is scheduled on the specified seed", func() {
+			expectGetManagedSeed()
+			expectGetShoot()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(seedOfManagedSeed)).To(BeTrue())
+		})
+
+		It("should return true with a shoot that is scheduled on the specified seed (status different from spec)", func() {
+			expectGetManagedSeed()
+			shoot.Spec.SeedName = pointer.String("foo")
+			expectGetShoot()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, seedName)
+			Expect(f(seedOfManagedSeed)).To(BeTrue())
+		})
+
+		It("should return false with a shoot that is scheduled on a different seed", func() {
+			expectGetManagedSeed()
+			expectGetShoot()
+			f := controllerutils.SeedOfManagedSeedFilterFunc(ctx, c, "foo")
+			Expect(f(seedOfManagedSeed)).To(BeFalse())
+		})
+	})
+
 	Describe("BackupEntry", func() {
-		var (
-			backupEntry       *gardencorev1beta1.BackupEntry
-			seedLabelSelector = &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"test-label": "test",
-				},
-			}
-			otherSeedLabelSelector = &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"test-label": "new-test",
-				},
-			}
-		)
+		var backupEntry *gardencorev1beta1.BackupEntry
 
 		BeforeEach(func() {
 			backupEntry = &gardencorev1beta1.BackupEntry{
@@ -225,45 +234,31 @@ var _ = Describe("seedfilter", func() {
 
 		Describe("#BackupEntryFilterFunc", func() {
 			It("should return false if the specified object is not a BackupEntry", func() {
-				f := controllerutils.BackupEntryFilterFunc(ctx, c, seedName, nil)
+				f := controllerutils.BackupEntryFilterFunc(seedName)
 				Expect(f(shoot)).To(BeFalse())
 			})
 
 			DescribeTable("filter BackupEntry by seedName",
 				func(specSeedName, statusSeedName *string, filterSeedName string, match gomegatypes.GomegaMatcher) {
-					f := controllerutils.BackupEntryFilterFunc(ctx, c, filterSeedName, nil)
+					f := controllerutils.BackupEntryFilterFunc(filterSeedName)
 					backupEntry.Spec.SeedName = specSeedName
 					backupEntry.Status.SeedName = statusSeedName
 					Expect(f(backupEntry)).To(match)
 				},
 
 				Entry("BackupEntry.Spec.SeedName and BackupEntry.Status.SeedName are nil", nil, nil, seedName, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName does not match and BackupEntry.Status.SeedName is nil", pointer.StringPtr(otherSeed), nil, seedName, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName and BackupEntry.Status.SeedName do not match", pointer.StringPtr(otherSeed), pointer.StringPtr(otherSeed), seedName, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName is nil but BackupEntry.Status.SeedName matches", nil, pointer.StringPtr(seedName), seedName, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName matches and BackupEntry.Status.SeedName is nil", pointer.StringPtr(seedName), nil, seedName, BeTrue()),
-				Entry("BackupEntry.Spec.SeedName does not match but BackupEntry.Status.SeedName matches", pointer.StringPtr(otherSeed), pointer.StringPtr(seedName), seedName, BeTrue()),
-			)
-
-			DescribeTable("filter BackupEntry by Seed label selector",
-				func(specSeedName, statusSeedName *string, labelSelector *metav1.LabelSelector, match gomegatypes.GomegaMatcher) {
-					expectGetSeed()
-					f := controllerutils.BackupEntryFilterFunc(ctx, c, "", labelSelector)
-					backupEntry.Spec.SeedName = specSeedName
-					backupEntry.Status.SeedName = statusSeedName
-					Expect(f(backupEntry)).To(match)
-				},
-				Entry("BackupEntry.Spec.SeedName does not match and BackupEntry.Status.SeedName is nil", pointer.StringPtr(seedName), nil, otherSeedLabelSelector, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName and BackupEntry.Status.SeedName do not match", pointer.StringPtr(seedName), pointer.StringPtr(seedName), otherSeedLabelSelector, BeFalse()),
-				Entry("BackupEntry.Spec.SeedName matches and BackupEntry.Status.SeedName is nil", pointer.StringPtr(seedName), nil, seedLabelSelector, BeTrue()),
-				Entry("BackupEntry.Spec.SeedName does not match but BackupEntry.Status.SeedName matches", pointer.StringPtr(otherSeed), pointer.StringPtr(seedName), seedLabelSelector, BeTrue()),
+				Entry("BackupEntry.Spec.SeedName does not match and BackupEntry.Status.SeedName is nil", pointer.String(otherSeed), nil, seedName, BeFalse()),
+				Entry("BackupEntry.Spec.SeedName and BackupEntry.Status.SeedName do not match", pointer.String(otherSeed), pointer.String(otherSeed), seedName, BeFalse()),
+				Entry("BackupEntry.Spec.SeedName is nil but BackupEntry.Status.SeedName matches", nil, pointer.String(seedName), seedName, BeFalse()),
+				Entry("BackupEntry.Spec.SeedName matches and BackupEntry.Status.SeedName is nil", pointer.String(seedName), nil, seedName, BeTrue()),
+				Entry("BackupEntry.Spec.SeedName does not match but BackupEntry.Status.SeedName matches", pointer.String(otherSeed), pointer.String(seedName), seedName, BeTrue()),
 			)
 		})
 
 		Describe("#BackupEntryIsManagedByThisGardenlet", func() {
 			DescribeTable("check BackupEntry by seedName",
 				func(bucketSeedName string, match gomegatypes.GomegaMatcher) {
-					backupEntry.Spec.SeedName = pointer.StringPtr(bucketSeedName)
+					backupEntry.Spec.SeedName = pointer.String(bucketSeedName)
 					gc := &config.GardenletConfiguration{
 						SeedConfig: &config.SeedConfig{
 							SeedTemplate: gardencore.SeedTemplate{
@@ -273,23 +268,10 @@ var _ = Describe("seedfilter", func() {
 							},
 						},
 					}
-					Expect(controllerutils.BackupEntryIsManagedByThisGardenlet(ctx, c, backupEntry, gc)).To(match)
+					Expect(controllerutils.BackupEntryIsManagedByThisGardenlet(backupEntry, gc)).To(match)
 				},
 				Entry("BackupEntry is not managed by this seed", otherSeed, BeFalse()),
 				Entry("BackupEntry is managed by this seed", seedName, BeTrue()),
-			)
-
-			DescribeTable("check BackupEntry by seed label selector",
-				func(labelSelector *metav1.LabelSelector, match gomegatypes.GomegaMatcher) {
-					backupEntry.Spec.SeedName = pointer.StringPtr(seedName)
-					gc := &config.GardenletConfiguration{
-						SeedSelector: labelSelector,
-					}
-					expectGetSeed()
-					Expect(controllerutils.BackupEntryIsManagedByThisGardenlet(ctx, c, backupEntry, gc)).To(match)
-				},
-				Entry("BackupEntry is not managed by this seed", otherSeedLabelSelector, BeFalse()),
-				Entry("BackupEntry is managed by this seed", seedLabelSelector, BeTrue()),
 			)
 		})
 	})

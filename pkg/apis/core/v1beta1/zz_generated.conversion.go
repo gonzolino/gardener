@@ -2689,6 +2689,7 @@ func autoConvert_v1beta1_KubeAPIServerConfig_To_core_KubeAPIServerConfig(in *Kub
 	out.ServiceAccountConfig = (*core.ServiceAccountConfig)(unsafe.Pointer(in.ServiceAccountConfig))
 	out.WatchCacheSizes = (*core.WatchCacheSizes)(unsafe.Pointer(in.WatchCacheSizes))
 	out.Requests = (*core.KubeAPIServerRequests)(unsafe.Pointer(in.Requests))
+	out.EnableAnonymousAuthentication = (*bool)(unsafe.Pointer(in.EnableAnonymousAuthentication))
 	return nil
 }
 
@@ -2710,6 +2711,7 @@ func autoConvert_core_KubeAPIServerConfig_To_v1beta1_KubeAPIServerConfig(in *cor
 	out.ServiceAccountConfig = (*ServiceAccountConfig)(unsafe.Pointer(in.ServiceAccountConfig))
 	out.WatchCacheSizes = (*WatchCacheSizes)(unsafe.Pointer(in.WatchCacheSizes))
 	out.Requests = (*KubeAPIServerRequests)(unsafe.Pointer(in.Requests))
+	out.EnableAnonymousAuthentication = (*bool)(unsafe.Pointer(in.EnableAnonymousAuthentication))
 	return nil
 }
 
@@ -2777,6 +2779,7 @@ func autoConvert_v1beta1_KubeProxyConfig_To_core_KubeProxyConfig(in *KubeProxyCo
 		return err
 	}
 	out.Mode = (*core.ProxyMode)(unsafe.Pointer(in.Mode))
+	out.Enabled = (*bool)(unsafe.Pointer(in.Enabled))
 	return nil
 }
 
@@ -2790,6 +2793,7 @@ func autoConvert_core_KubeProxyConfig_To_v1beta1_KubeProxyConfig(in *core.KubePr
 		return err
 	}
 	out.Mode = (*ProxyMode)(unsafe.Pointer(in.Mode))
+	out.Enabled = (*bool)(unsafe.Pointer(in.Enabled))
 	return nil
 }
 
@@ -2842,6 +2846,8 @@ func autoConvert_v1beta1_KubeletConfig_To_core_KubeletConfig(in *KubeletConfig, 
 	out.FailSwapOn = (*bool)(unsafe.Pointer(in.FailSwapOn))
 	out.KubeReserved = (*core.KubeletConfigReserved)(unsafe.Pointer(in.KubeReserved))
 	out.SystemReserved = (*core.KubeletConfigReserved)(unsafe.Pointer(in.SystemReserved))
+	out.ImageGCHighThresholdPercent = (*int32)(unsafe.Pointer(in.ImageGCHighThresholdPercent))
+	out.ImageGCLowThresholdPercent = (*int32)(unsafe.Pointer(in.ImageGCLowThresholdPercent))
 	return nil
 }
 
@@ -2868,6 +2874,8 @@ func autoConvert_core_KubeletConfig_To_v1beta1_KubeletConfig(in *core.KubeletCon
 	out.FailSwapOn = (*bool)(unsafe.Pointer(in.FailSwapOn))
 	out.KubeReserved = (*KubeletConfigReserved)(unsafe.Pointer(in.KubeReserved))
 	out.SystemReserved = (*KubeletConfigReserved)(unsafe.Pointer(in.SystemReserved))
+	out.ImageGCHighThresholdPercent = (*int32)(unsafe.Pointer(in.ImageGCHighThresholdPercent))
+	out.ImageGCLowThresholdPercent = (*int32)(unsafe.Pointer(in.ImageGCLowThresholdPercent))
 	return nil
 }
 
@@ -4250,7 +4258,7 @@ func Convert_core_SeedProvider_To_v1beta1_SeedProvider(in *core.SeedProvider, ou
 }
 
 func autoConvert_v1beta1_SeedSelector_To_core_SeedSelector(in *SeedSelector, out *core.SeedSelector, s conversion.Scope) error {
-	out.LabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
+	out.LabelSelector = in.LabelSelector
 	out.ProviderTypes = *(*[]string)(unsafe.Pointer(&in.ProviderTypes))
 	return nil
 }
@@ -4261,7 +4269,7 @@ func Convert_v1beta1_SeedSelector_To_core_SeedSelector(in *SeedSelector, out *co
 }
 
 func autoConvert_core_SeedSelector_To_v1beta1_SeedSelector(in *core.SeedSelector, out *SeedSelector, s conversion.Scope) error {
-	out.LabelSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LabelSelector))
+	out.LabelSelector = in.LabelSelector
 	out.ProviderTypes = *(*[]string)(unsafe.Pointer(&in.ProviderTypes))
 	return nil
 }
@@ -4763,6 +4771,7 @@ func autoConvert_v1beta1_ShootSpec_To_core_ShootSpec(in *ShootSpec, out *core.Sh
 	out.SeedSelector = (*core.SeedSelector)(unsafe.Pointer(in.SeedSelector))
 	out.Resources = *(*[]core.NamedResourceReference)(unsafe.Pointer(&in.Resources))
 	out.Tolerations = *(*[]core.Toleration)(unsafe.Pointer(&in.Tolerations))
+	out.ExposureClassName = (*string)(unsafe.Pointer(in.ExposureClassName))
 	return nil
 }
 
@@ -4795,6 +4804,7 @@ func autoConvert_core_ShootSpec_To_v1beta1_ShootSpec(in *core.ShootSpec, out *Sh
 	out.SeedSelector = (*SeedSelector)(unsafe.Pointer(in.SeedSelector))
 	out.Resources = *(*[]NamedResourceReference)(unsafe.Pointer(&in.Resources))
 	out.Tolerations = *(*[]Toleration)(unsafe.Pointer(&in.Tolerations))
+	out.ExposureClassName = (*string)(unsafe.Pointer(in.ExposureClassName))
 	return nil
 }
 

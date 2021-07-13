@@ -25,11 +25,14 @@ import (
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 
-	"github.com/gogo/protobuf/types"
+	protobuftypes "github.com/gogo/protobuf/types"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	istionetworkingv1alpha3 "istio.io/api/networking/v1alpha3"
 	"istio.io/api/networking/v1beta1"
+	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
+	networkingv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	networkingv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
@@ -37,6 +40,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 	"k8s.io/utils/pointer"
@@ -47,7 +51,7 @@ var _ = Describe("VpnSeedServer", func() {
 	var (
 		ctrl          *gomock.Controller
 		c             *mockclient.MockClient
-		vpnSeedServer VPNSeedServer
+		vpnSeedServer Interface
 
 		ctx                     = context.TODO()
 		fakeErr                 = fmt.Errorf("fake error")
@@ -60,6 +64,14 @@ var _ = Describe("VpnSeedServer", func() {
 		nodeNetwork             = "10.0.2.0/24"
 		replicas          int32 = 1
 		vpaUpdateMode           = autoscalingv1beta2.UpdateModeAuto
+
+		namespaceUID        = types.UID("123456")
+		istioLabels         = map[string]string{"foo": "bar"}
+		istioNamespace      = "istio-foo"
+		istioIngressGateway = IstioIngressGateway{
+			Namespace: istioNamespace,
+			Labels:    istioLabels,
+		}
 
 		secretNameTLSAuth     = VpnSeedServerTLSAuth
 		secretChecksumTLSAuth = "1234"
@@ -164,8 +176,8 @@ var _ = Describe("VpnSeedServer", func() {
 					},
 				},
 				Spec: appsv1.DeploymentSpec{
-					Replicas:             pointer.Int32Ptr(replicas),
-					RevisionHistoryLimit: pointer.Int32Ptr(1),
+					Replicas:             pointer.Int32(replicas),
+					RevisionHistoryLimit: pointer.Int32(1),
 					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
 						v1beta1constants.LabelApp: DeploymentName,
 					}},
@@ -192,7 +204,7 @@ var _ = Describe("VpnSeedServer", func() {
 							},
 						},
 						Spec: corev1.PodSpec{
-							AutomountServiceAccountToken: pointer.BoolPtr(false),
+							AutomountServiceAccountToken: pointer.Bool(false),
 							PriorityClassName:            v1beta1constants.PriorityClassNameShootControlPlane,
 							DNSPolicy:                    corev1.DNSDefault, // make sure to not use the coredns for DNS resolution.
 							Containers: []corev1.Container{
@@ -213,7 +225,7 @@ var _ = Describe("VpnSeedServer", func() {
 												"NET_ADMIN",
 											},
 										},
-										Privileged: pointer.BoolPtr(true),
+										Privileged: pointer.Bool(true),
 									},
 									Env: []corev1.EnvVar{
 										{
@@ -290,7 +302,7 @@ var _ = Describe("VpnSeedServer", func() {
 									},
 								},
 							},
-							TerminationGracePeriodSeconds: pointer.Int64Ptr(30),
+							TerminationGracePeriodSeconds: pointer.Int64(30),
 							Volumes: []corev1.Volume{
 								{
 									Name: DeploymentName,
@@ -339,25 +351,25 @@ var _ = Describe("VpnSeedServer", func() {
 
 		destinationRule = &networkingv1beta1.DestinationRule{
 			ObjectMeta: metav1.ObjectMeta{Name: DeploymentName, Namespace: namespace},
-			Spec: v1beta1.DestinationRule{
+			Spec: istionetworkingv1beta1.DestinationRule{
 				ExportTo: []string{"*"},
 				Host:     fmt.Sprintf("%s.%s.svc.cluster.local", DeploymentName, namespace),
-				TrafficPolicy: &v1beta1.TrafficPolicy{
-					ConnectionPool: &v1beta1.ConnectionPoolSettings{
-						Tcp: &v1beta1.ConnectionPoolSettings_TCPSettings{
+				TrafficPolicy: &istionetworkingv1beta1.TrafficPolicy{
+					ConnectionPool: &istionetworkingv1beta1.ConnectionPoolSettings{
+						Tcp: &istionetworkingv1beta1.ConnectionPoolSettings_TCPSettings{
 							MaxConnections: 5000,
-							TcpKeepalive: &v1beta1.ConnectionPoolSettings_TCPSettings_TcpKeepalive{
-								Interval: &types.Duration{
+							TcpKeepalive: &istionetworkingv1beta1.ConnectionPoolSettings_TCPSettings_TcpKeepalive{
+								Interval: &protobuftypes.Duration{
 									Seconds: 75,
 								},
-								Time: &types.Duration{
+								Time: &protobuftypes.Duration{
 									Seconds: 7200,
 								},
 							},
 						},
 					},
-					Tls: &v1beta1.ClientTLSSettings{
-						Mode: v1beta1.ClientTLSSettings_DISABLE,
+					Tls: &istionetworkingv1beta1.ClientTLSSettings{
+						Mode: istionetworkingv1beta1.ClientTLSSettings_DISABLE,
 					},
 				},
 			},
@@ -367,7 +379,7 @@ var _ = Describe("VpnSeedServer", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: DeploymentName, Namespace: namespace},
 			Spec: v1beta1.Gateway{
 				Selector: map[string]string{
-					"istio": "ingressgateway",
+					"app": "istio-ingressgateway",
 				},
 				Servers: []*v1beta1.Server{
 					{
@@ -547,13 +559,187 @@ var _ = Describe("VpnSeedServer", func() {
 				},
 			},
 		}
+
+		envoyFilter = &networkingv1alpha3.EnvoyFilter{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      namespace + "-vpn",
+				Namespace: istioNamespace,
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion:         "v1",
+					Kind:               "Namespace",
+					Name:               namespace,
+					UID:                namespaceUID,
+					BlockOwnerDeletion: pointer.Bool(false),
+					Controller:         pointer.Bool(false),
+				}},
+			},
+			Spec: istionetworkingv1alpha3.EnvoyFilter{
+				WorkloadSelector: &istionetworkingv1alpha3.WorkloadSelector{
+					Labels: istioLabels,
+				},
+				ConfigPatches: []*istionetworkingv1alpha3.EnvoyFilter_EnvoyConfigObjectPatch{
+					&istionetworkingv1alpha3.EnvoyFilter_EnvoyConfigObjectPatch{
+						ApplyTo: istionetworkingv1alpha3.EnvoyFilter_NETWORK_FILTER,
+						Match: &istionetworkingv1alpha3.EnvoyFilter_EnvoyConfigObjectMatch{
+							Context: istionetworkingv1alpha3.EnvoyFilter_GATEWAY,
+							ObjectTypes: &istionetworkingv1alpha3.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+								Listener: &istionetworkingv1alpha3.EnvoyFilter_ListenerMatch{
+									Name:       fmt.Sprintf("0.0.0.0_%d", 8132),
+									PortNumber: 8132,
+									FilterChain: &istionetworkingv1alpha3.EnvoyFilter_ListenerMatch_FilterChainMatch{
+										Filter: &istionetworkingv1alpha3.EnvoyFilter_ListenerMatch_FilterMatch{
+											Name: "envoy.filters.network.http_connection_manager",
+										},
+									},
+								},
+							},
+						},
+						Patch: &istionetworkingv1alpha3.EnvoyFilter_Patch{
+							Operation: istionetworkingv1alpha3.EnvoyFilter_Patch_MERGE,
+							Value: &protobuftypes.Struct{
+								Fields: map[string]*protobuftypes.Value{
+									"name": &protobuftypes.Value{
+										Kind: &protobuftypes.Value_StringValue{
+											StringValue: "envoy.filters.network.http_connection_manager",
+										},
+									},
+									"typed_config": &protobuftypes.Value{
+										Kind: &protobuftypes.Value_StructValue{
+											StructValue: &protobuftypes.Struct{
+												Fields: map[string]*protobuftypes.Value{
+													"@type": &protobuftypes.Value{
+														Kind: &protobuftypes.Value_StringValue{
+															StringValue: "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+														},
+													},
+													"route_config": &protobuftypes.Value{
+														Kind: &protobuftypes.Value_StructValue{
+															StructValue: &protobuftypes.Struct{
+																Fields: map[string]*protobuftypes.Value{
+																	"virtual_hosts": &protobuftypes.Value{
+																		Kind: &protobuftypes.Value_ListValue{
+																			ListValue: &protobuftypes.ListValue{
+																				Values: []*protobuftypes.Value{
+																					{
+																						Kind: &protobuftypes.Value_StructValue{
+																							StructValue: &protobuftypes.Struct{
+																								Fields: map[string]*protobuftypes.Value{
+																									"name": &protobuftypes.Value{
+																										Kind: &protobuftypes.Value_StringValue{
+																											StringValue: namespace,
+																										},
+																									},
+																									"domains": &protobuftypes.Value{
+																										Kind: &protobuftypes.Value_ListValue{
+																											ListValue: &protobuftypes.ListValue{
+																												Values: []*protobuftypes.Value{
+																													{
+																														Kind: &protobuftypes.Value_StringValue{
+																															StringValue: fmt.Sprintf("%s:%d", kubeAPIServerHost, 8132),
+																														},
+																													},
+																												},
+																											},
+																										},
+																									},
+																									"routes": &protobuftypes.Value{
+																										Kind: &protobuftypes.Value_ListValue{
+																											ListValue: &protobuftypes.ListValue{
+																												Values: []*protobuftypes.Value{
+																													{
+																														Kind: &protobuftypes.Value_StructValue{
+																															StructValue: &protobuftypes.Struct{
+																																Fields: map[string]*protobuftypes.Value{
+																																	"match": &protobuftypes.Value{
+																																		Kind: &protobuftypes.Value_StructValue{
+																																			StructValue: &protobuftypes.Struct{
+																																				Fields: map[string]*protobuftypes.Value{
+																																					"connect_matcher": &protobuftypes.Value{
+																																						Kind: &protobuftypes.Value_StructValue{
+																																							StructValue: &protobuftypes.Struct{},
+																																						},
+																																					},
+																																				},
+																																			},
+																																		},
+																																	},
+																																	"route": &protobuftypes.Value{
+																																		Kind: &protobuftypes.Value_StructValue{
+																																			StructValue: &protobuftypes.Struct{
+																																				Fields: map[string]*protobuftypes.Value{
+																																					"cluster": &protobuftypes.Value{
+																																						Kind: &protobuftypes.Value_StringValue{
+																																							StringValue: "outbound|1194||" + ServiceName + "." + namespace + ".svc.cluster.local",
+																																						},
+																																					},
+																																					"upgrade_configs": &protobuftypes.Value{
+																																						Kind: &protobuftypes.Value_ListValue{
+																																							ListValue: &protobuftypes.ListValue{
+																																								Values: []*protobuftypes.Value{
+																																									{
+																																										Kind: &protobuftypes.Value_StructValue{
+																																											StructValue: &protobuftypes.Struct{
+																																												Fields: map[string]*protobuftypes.Value{
+																																													"upgrade_type": &protobuftypes.Value{
+																																														Kind: &protobuftypes.Value_StringValue{
+																																															StringValue: "CONNECT",
+																																														},
+																																													},
+																																													"connect_config": &protobuftypes.Value{
+																																														Kind: &protobuftypes.Value_StructValue{
+																																															StructValue: &protobuftypes.Struct{},
+																																														},
+																																													},
+																																												},
+																																											},
+																																										},
+																																									},
+																																								},
+																																							},
+																																						},
+																																					},
+																																				},
+																																			},
+																																		},
+																																	},
+																																},
+																															},
+																														},
+																													},
+																												},
+																											},
+																										},
+																									},
+																								},
+																							},
+																						},
+																					},
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		c = mockclient.NewMockClient(ctrl)
 
-		vpnSeedServer = New(c, namespace, envoyImage, vpnImage, &kubeAPIServerHost, serviceNetwork, podNetwork, nil, replicas)
+		vpnSeedServer = New(c, namespace, envoyImage, vpnImage, &kubeAPIServerHost, serviceNetwork, podNetwork, nil, replicas, istioIngressGateway)
 	})
 
 	AfterEach(func() {
@@ -583,12 +769,13 @@ var _ = Describe("VpnSeedServer", func() {
 		Context("secret information available", func() {
 			BeforeEach(func() {
 				vpnSeedServer.SetSecrets(secrets)
+				vpnSeedServer.SetSeedNamespaceObjectUID(namespaceUID)
 			})
 
 			It("should fail because the server secret cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -597,9 +784,9 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the tlsAuth secret cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -608,11 +795,11 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the dh secret cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -621,13 +808,13 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the networkpolicy cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -636,15 +823,15 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the deployment cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -653,17 +840,17 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the configMap cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -672,19 +859,19 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the gateway cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -693,21 +880,21 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the destinationRule cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -716,23 +903,23 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the virtualService cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -741,25 +928,25 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the service cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -768,27 +955,27 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should fail because the vpa cannot be created", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-vpa"), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(vpnSeedServer.Deploy(ctx)).To(MatchError(fakeErr))
@@ -797,101 +984,132 @@ var _ = Describe("VpnSeedServer", func() {
 			It("should successfully deploy all resources (w/o node network)", func() {
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretServer))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretServer))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretTLSAuth))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretTLSAuth))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretDH))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretDH))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(networkPolicy))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(networkPolicy))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(deployment(nil)))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(deployment(nil)))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(configMap))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(configMap))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(gateway))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(gateway))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(destinationRule))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(destinationRule))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(virtualService))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(virtualService))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(service))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(service))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-vpa"), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(vpa))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(vpa))
+						}),
+					c.EXPECT().Get(ctx, kutil.Key(istioNamespace, namespace+"-vpn"), gomock.AssignableToTypeOf(&networkingv1alpha3.EnvoyFilter{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1alpha3.EnvoyFilter{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(envoyFilter))
 					}),
 				)
 				Expect(vpnSeedServer.Deploy(ctx)).To(Succeed())
 			})
 
 			It("should successfully deploy all resources (w/ node network)", func() {
-				vpnSeedServer = New(c, namespace, envoyImage, vpnImage, &kubeAPIServerHost, serviceNetwork, podNetwork, &nodeNetwork, replicas)
+				vpnSeedServer = New(c, namespace, envoyImage, vpnImage, &kubeAPIServerHost, serviceNetwork, podNetwork, &nodeNetwork, replicas, istioIngressGateway)
 				vpnSeedServer.SetSecrets(secrets)
+				vpnSeedServer.SetSeedNamespaceObjectUID(namespaceUID)
 
 				gomock.InOrder(
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretServer))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretServer))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-tlsauth"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretTLSAuth))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretTLSAuth))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-dh"), gomock.AssignableToTypeOf(&corev1.Secret{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(secretDH))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(secretDH))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, "allow-to-vpn-seed-server"), gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(networkPolicy))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1.NetworkPolicy{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(networkPolicy))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(deployment(&nodeNetwork)))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(deployment(&nodeNetwork)))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-envoy-config"), gomock.AssignableToTypeOf(&corev1.ConfigMap{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(configMap))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(configMap))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(gateway))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.Gateway{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(gateway))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(destinationRule))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.DestinationRule{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(destinationRule))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName), gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(virtualService))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1beta1.VirtualService{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(virtualService))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, ServiceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(service))
-					}),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(service))
+						}),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, DeploymentName+"-vpa"), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-						Expect(obj).To(DeepEqual(vpa))
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).
+						Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+							Expect(obj).To(DeepEqual(vpa))
+						}),
+					c.EXPECT().Get(ctx, kutil.Key(istioNamespace, namespace+"-vpn"), gomock.AssignableToTypeOf(&networkingv1alpha3.EnvoyFilter{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&networkingv1alpha3.EnvoyFilter{}), gomock.Any()).Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+						Expect(obj).To(DeepEqual(envoyFilter))
 					}),
 				)
 
@@ -1058,6 +1276,7 @@ var _ = Describe("VpnSeedServer", func() {
 				c.EXPECT().Delete(ctx, &networkingv1beta1.VirtualService{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: DeploymentName}}),
 				c.EXPECT().Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: ServiceName}}),
 				c.EXPECT().Delete(ctx, &autoscalingv1beta2.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: DeploymentName + "-vpa"}}),
+				c.EXPECT().Delete(ctx, &networkingv1alpha3.EnvoyFilter{ObjectMeta: metav1.ObjectMeta{Namespace: istioNamespace, Name: namespace + "-vpn"}}),
 			)
 			Expect(vpnSeedServer.Destroy(ctx)).To(Succeed())
 		})

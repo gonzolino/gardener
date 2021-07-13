@@ -22,19 +22,31 @@ import (
 	"time"
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-	"github.com/gardener/gardener/pkg/operation/botanist/component/konnectivity"
 	"github.com/gardener/gardener/pkg/operation/common"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/retry"
 
+	"github.com/Masterminds/semver"
 	errorspkg "github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/pointer"
 )
+
+var (
+	versionConstraintK8sLess119 *semver.Constraints
+)
+
+func init() {
+	var err error
+
+	versionConstraintK8sLess119, err = semver.NewConstraint("< 1.19")
+	utilruntime.Must(err)
+}
 
 // WaitUntilNginxIngressServiceIsReady waits until the external load balancer of the nginx ingress controller has been created.
 func (b *Botanist) WaitUntilNginxIngressServiceIsReady(ctx context.Context) error {
@@ -45,7 +57,7 @@ func (b *Botanist) WaitUntilNginxIngressServiceIsReady(ctx context.Context) erro
 		return err
 	}
 
-	b.SetNginxIngressAddress(loadBalancerIngress, b.K8sSeedClient.DirectClient())
+	b.SetNginxIngressAddress(loadBalancerIngress, b.K8sSeedClient.Client())
 	return nil
 }
 
@@ -104,7 +116,12 @@ func (b *Botanist) WaitUntilKubeAPIServerReady(ctx context.Context) error {
 
 		return retry.Ok()
 	}); err != nil {
-		var retryError *retry.Error
+		var (
+			retryError *retry.Error
+			headBytes  *int64
+			tailLines  = pointer.Int64(10)
+		)
+
 		if !errors.As(err, &retryError) {
 			return err
 		}
@@ -117,7 +134,11 @@ func (b *Botanist) WaitUntilKubeAPIServerReady(ctx context.Context) error {
 			return err
 		}
 
-		logs, err2 := kutil.MostRecentCompleteLogs(ctx, b.K8sSeedClient.Kubernetes().CoreV1().Pods(newestPod.Namespace), newestPod, "kube-apiserver", pointer.Int64Ptr(10))
+		if versionConstraintK8sLess119.Check(semver.MustParse(b.ShootVersion())) {
+			headBytes = pointer.Int64(1024)
+		}
+
+		logs, err2 := kutil.MostRecentCompleteLogs(ctx, b.K8sSeedClient.Kubernetes().CoreV1().Pods(newestPod.Namespace), newestPod, "kube-apiserver", tailLines, headBytes)
 		if err2 != nil {
 			return errorspkg.Wrapf(err, "failure to read the logs: %s", err2.Error())
 		}
@@ -129,16 +150,47 @@ func (b *Botanist) WaitUntilKubeAPIServerReady(ctx context.Context) error {
 	return nil
 }
 
-// WaitUntilTunnelConnectionExists waits until a port forward connection to the tunnel pod (vpn-shoot or konnectivity-agent) in the kube-system
+// WaitUntilTunnelConnectionExists waits until a port forward connection to the tunnel pod (vpn-shoot) in the kube-system
 // namespace of the Shoot cluster can be established.
 func (b *Botanist) WaitUntilTunnelConnectionExists(ctx context.Context) error {
-	return retry.UntilTimeout(ctx, 5*time.Second, 900*time.Second, func(ctx context.Context) (done bool, err error) {
-		tunnelName := common.VPNTunnel
-		if b.Shoot.KonnectivityTunnelEnabled {
-			tunnelName = konnectivity.AgentName
+	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	return retry.Until(timeoutCtx, 5*time.Second, func(ctx context.Context) (bool, error) {
+		done, err := CheckTunnelConnection(ctx, b.K8sShootClient, b.Logger, common.VPNTunnel)
+
+		// If the tunnel connection check failed but is not yet "done" (i.e., will be retried, hence, it didn't fail
+		// with a severe error), and if the classic VPN solution is used for the shoot cluster then let's try to fetch
+		// the last events of the vpn-shoot service (potentially indicating an error with the load balancer service).
+		if err != nil &&
+			!done &&
+			!b.Shoot.ReversedVPNEnabled {
+
+			b.Logger.Errorf("error %v occurred while checking the tunnel connection", err)
+
+			service := &corev1.Service{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Service",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vpn-shoot",
+					Namespace: metav1.NamespaceSystem,
+				},
+			}
+
+			eventsErrorMessage, err2 := kutil.FetchEventMessages(ctx, b.K8sShootClient.Client().Scheme(), b.K8sShootClient.Client(), service, corev1.EventTypeWarning, 2)
+			if err2 != nil {
+				b.Logger.Errorf("error %v occurred while fetching events for VPN load balancer service", err2)
+				return retry.SevereError(fmt.Errorf("'%w' occurred but could not fetch events for more information", err))
+			}
+
+			if eventsErrorMessage != "" {
+				return retry.SevereError(fmt.Errorf("%s\n\n%s", err.Error(), eventsErrorMessage))
+			}
 		}
 
-		return b.CheckTunnelConnection(ctx, b.Logger, tunnelName)
+		return done, err
 	})
 }
 

@@ -11,6 +11,8 @@ shootClientConnection:
   qps: 25
   burst: 50
 controllers:
+  bastion:
+    concurrentSyncs: 20
   backupBucket:
     concurrentSyncs: 20
   backupEntry:
@@ -90,14 +92,12 @@ featureGates:
   HVPA: true
   HVPAForShootedSeed: true
   ManagedIstio: true
-  KonnectivityTunnel: false
   APIServerSNI: true
   CachedRuntimeClients: true
-  NodeLocalDNS: true
-  MountHostCADirectories: false
+  MountHostCADirectories: true
   SeedKubeScheduler: false
   ReversedVPN: false
-seedSelector: {} # selects all seeds, only use for development purposes
+  UseDNSRecords: false
 # seedConfig:
 #   metadata:
 #     name: my-seed
@@ -108,9 +108,31 @@ seedSelector: {} # selects all seeds, only use for development purposes
 #     output: |-
 #       [Output]
 #           ...
+#   loki:
+#     garden:
+#       priority: 100
+#   shootNodeLogging:
+#     shootPurposes:
+#     - "development"
 # sni: # SNI configuration used for APIServerSNI and ManagedIstio feature gates with default values.
 #   ingress:
 #     serviceName: istio-ingress
 #     namespace: istio-ingress
+#     serviceExternalIP: 10.8.10.10 # Optional external ip for the ingress gateway load balancer.
 #     labels:
 #       istio: ingressgateway
+# exposureClassHandlers:
+# - name: internet-config
+#   loadBalancerService:
+#     annotations:
+#       loadbalancer/network: internet
+# - name: internal-config
+#   loadBalancerService:
+#     annotations:
+#       loadbalancer/network: internal
+#   sni:
+#     ingress:
+#       namespace: ingress-internal
+#       serviceExternalIP: 10.8.10.11 # Optional external ip for the ingress gateway load balancer.
+#       labels:
+#         network: internal

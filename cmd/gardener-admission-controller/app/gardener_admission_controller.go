@@ -17,7 +17,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -90,7 +89,7 @@ func (o *options) complete() error {
 		return fmt.Errorf("missing config file")
 	}
 
-	data, err := ioutil.ReadFile(o.configFile)
+	data, err := os.ReadFile(o.configFile)
 	if err != nil {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
@@ -156,7 +155,7 @@ func (o *options) run(ctx context.Context) error {
 	}
 
 	log.Info("setting up graph for seed authorization handler")
-	graph := seedauthorizergraph.New(log)
+	graph := seedauthorizergraph.New(log, mgr.GetClient())
 	if err := graph.Setup(ctx, mgr.GetCache()); err != nil {
 		return err
 	}

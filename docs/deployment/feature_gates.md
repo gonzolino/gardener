@@ -23,12 +23,26 @@ The following tables are a summary of the feature gates that you can set on diff
 | Logging | `false` | `Alpha` | `0.13` | |
 | HVPA | `false` | `Alpha` | `0.31` | |
 | HVPAForShootedSeed | `false` | `Alpha` | `0.32` | |
+| ManagedIstio | `false` | `Alpha` | `1.5` | `1.18` |
 | ManagedIstio | `true` | `Beta` | `1.19` | |
+| APIServerSNI | `false` | `Alpha` | `1.7` | `1.18` |
 | APIServerSNI | `true` | `Beta` | `1.19` | |
-| MountHostCADirectories | `false` | `Alpha` | `1.11.0` | |
-| SeedChange | `false` | `Alpha` | `1.12.0` | |
-| SeedKubeScheduler | `false` | `Alpha` | `1.15.0` | |
-| ReversedVPN | `false` | `Alpha` | `1.22.0` | |
+| SeedChange | `false` | `Alpha` | `1.12` | |
+| SeedKubeScheduler | `false` | `Alpha` | `1.15` | |
+| ReversedVPN | `false` | `Alpha` | `1.22` | |
+| UseDNSRecords | `false` | `Alpha` | `1.27.0` | |
+
+## Feature gates for graduated or deprecated features
+
+| Feature | Default | Stage | Since | Until |
+| --- | --- | --- | --- | --- |
+| NodeLocalDNS | `false` | `Alpha` | `1.7` | |
+| NodeLocalDNS | | `Removed` | `1.26` | |
+| KonnectivityTunnel | `false` | `Alpha` | `1.6` | |
+| KonnectivityTunnel | | `Removed` | `1.27` | |
+| MountHostCADirectories | `false` | `Alpha` | `1.11` | `1.25` |
+| MountHostCADirectories | `true` | `Beta` | `1.26` | `1.27` |
+| MountHostCADirectories | `true` | `GA` | `1.27` | |
 
 ## Using a feature
 
@@ -75,3 +89,5 @@ A *General Availability* (GA) feature is also referred to as a *stable* feature.
 * `SeedChange` enables updating the `spec.seedName` field during shoot validation from a non-empty value in order to trigger shoot control plane migration.
 * `SeedKubeScheduler` adds custom `kube-scheduler` in `gardener-kube-scheduler` namespace. It schedules [pods with scheduler name](../concepts/seed-admission-controller.md#mutating-webhooks) `gardener-kube-scheduler` on Nodes with higher resource utilization. It requires Seed cluster with kubernetes version `1.18` or higher.
 * `ReversedVPN` reverses the connection setup of the vpn tunnel between the Seed and the Shoot cluster(s). It allows Seed and Shoot clusters to be in different networks with only direct access in one direction (Shoot -> Seed). In addition to that, it reduces the amount of load balancers required, i.e. no load balancers are required for the vpn tunnel anymore. It requires `APIServerSNI` and kubernetes version `1.18` or higher to work. Details can be found in [GEP-14](../proposals/14-reversed-cluster-vpn.md).
+* `AdminKubeconfigRequest` enables the `AdminKubeconfigRequest` endpoint on Shoot resources. See [GEP-16](../proposals/16-adminkubeconfig-subresource.md) for more details.
+* `UseDNSRecords` enables using `DNSRecord` resources for Gardener DNS records instead of `DNSProvider`, `DNSEntry`, and `DNSOwner` resources. See [Contract: `DNSRecord` resources](../extensions/dnsrecord.md) for more details.

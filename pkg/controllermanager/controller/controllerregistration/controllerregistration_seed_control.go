@@ -25,13 +25,16 @@ import (
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	controllermanagerfeatures "github.com/gardener/gardener/pkg/controllermanager/features"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/extensions"
+	"github.com/gardener/gardener/pkg/features"
 	"github.com/gardener/gardener/pkg/logger"
 	"github.com/gardener/gardener/pkg/operation/common"
 	gardenpkg "github.com/gardener/gardener/pkg/operation/garden"
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils"
-	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 
 	dnsv1alpha1 "github.com/gardener/external-dns-management/pkg/apis/dns/v1alpha1"
@@ -42,7 +45,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -101,7 +103,7 @@ func (r *controllerRegistrationSeedReconciler) Reconcile(ctx context.Context, re
 		return reconcile.Result{}, err
 	}
 
-	secrets, err := gardenpkg.ReadGardenSecretsFromReader(ctx, r.gardenClient.Client(), gardenerutils.ComputeGardenNamespace(seed.Name))
+	secrets, err := gardenpkg.ReadGardenSecretsFromReader(ctx, r.gardenClient.Client(), gutil.ComputeGardenNamespace(seed.Name))
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -243,7 +245,8 @@ func computeKindTypesForShoots(
 				logger.Warnf("could not determine external domain for shoot %s/%s: %+v", shoot.Namespace, shoot.Name, err)
 			}
 
-			out <- shootpkg.ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain)
+			out <- shootpkg.ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain,
+				controllermanagerfeatures.FeatureGate.Enabled(features.UseDNSRecords))
 		}(shoot.DeepCopy())
 	}
 
@@ -272,7 +275,11 @@ func computeKindTypesForSeed(
 	}
 
 	if seed.Spec.DNS.Provider != nil {
-		wantedKindTypeCombinations.Insert(extensions.Id(dnsv1alpha1.DNSProviderKind, seed.Spec.DNS.Provider.Type))
+		if controllermanagerfeatures.FeatureGate.Enabled(features.UseDNSRecords) {
+			wantedKindTypeCombinations.Insert(extensions.Id(extensionsv1alpha1.DNSRecordResource, seed.Spec.DNS.Provider.Type))
+		} else {
+			wantedKindTypeCombinations.Insert(extensions.Id(dnsv1alpha1.DNSProviderKind, seed.Spec.DNS.Provider.Type))
+		}
 	}
 
 	return wantedKindTypeCombinations
@@ -498,10 +505,10 @@ func deployNeededInstallation(
 
 	if controllerInstallationName != "" {
 		// The installation already exists, however, we do not have the latest version of the ControllerInstallation object.
-		// Hence, we are running the `CreateOrUpdate` function as it first GETs the current objects and then runs the mutate()
-		// function before sending the UPDATE. This way we ensure that we have applied our mutations to the latest version.
+		// Hence, we are running the `GetAndCreateOrMergePatch` function as it first GETs the current objects and then runs the
+		// mutate() func before sending the PATCH. This way we ensure that we have applied our mutations to the latest version.
 		controllerInstallation.Name = controllerInstallationName
-		_, err := controllerutil.CreateOrUpdate(ctx, c, controllerInstallation, mutate)
+		_, err := controllerutils.GetAndCreateOrMergePatch(ctx, c, controllerInstallation, mutate)
 		return err
 	}
 

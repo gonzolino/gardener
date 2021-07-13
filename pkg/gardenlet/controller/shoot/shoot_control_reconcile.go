@@ -97,14 +97,14 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Name: "Deploying Shoot namespace in Seed",
 			Fn:   flow.TaskFn(botanist.DeploySeedNamespace).RetryUntilTimeout(defaultInterval, defaultTimeout),
 		})
-		deploySeedLogging = g.Add(flow.Task{
-			Name:         "Deploying shoot logging stack in Seed",
-			Fn:           flow.TaskFn(botanist.DeploySeedLogging).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(deployNamespace),
+		deployLokiRBACProxy = g.Add(flow.Task{
+			Name:         "Deploying kube-rbac-proxy in Shoot",
+			Fn:           flow.TaskFn(botanist.Shoot.Components.Logging.ShootRBACProxy.Deploy).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Dependencies: flow.NewTaskIDs(),
 		})
 		ensureShootClusterIdentity = g.Add(flow.Task{
 			Name:         "Ensuring Shoot cluster identity",
-			Fn:           flow.TaskFn(botanist.EnsureClusterIdentity).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Fn:           flow.TaskFn(botanist.EnsureShootClusterIdentity).RetryUntilTimeout(defaultInterval, defaultTimeout),
 			Dependencies: flow.NewTaskIDs(deployNamespace),
 		})
 		deployCloudProviderSecret = g.Add(flow.Task{
@@ -147,6 +147,11 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn:           flow.TaskFn(botanist.DeploySecrets),
 			Dependencies: flow.NewTaskIDs(deployNamespace, generateSecrets, ensureShootStateExists),
 		})
+		deploySeedLogging = g.Add(flow.Task{
+			Name:         "Deploying shoot logging stack in Seed",
+			Fn:           flow.TaskFn(botanist.DeploySeedLogging).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Dependencies: flow.NewTaskIDs(deployNamespace, deployLokiRBACProxy, deploySecrets),
+		})
 		deployReferencedResources = g.Add(flow.Task{
 			Name:         "Deploying referenced resources",
 			Fn:           flow.TaskFn(botanist.DeployReferencedResources).RetryUntilTimeout(defaultInterval, defaultTimeout),
@@ -154,12 +159,12 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 		})
 		deployInternalDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Deploying internal domain DNS record",
-			Fn:           flow.TaskFn(botanist.DeployInternalDNS).DoIf(!o.Shoot.HibernationEnabled),
+			Fn:           flow.TaskFn(botanist.DeployInternalDNSResources).DoIf(!o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(deployReferencedResources, waitUntilKubeAPIServerServiceIsReady),
 		})
 		deployExternalDomainDNSRecord = g.Add(flow.Task{
 			Name:         "Deploying external domain DNS record",
-			Fn:           flow.TaskFn(botanist.DeployExternalDNS).DoIf(!o.Shoot.HibernationEnabled),
+			Fn:           flow.TaskFn(botanist.DeployExternalDNSResources).DoIf(!o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(deployReferencedResources, waitUntilKubeAPIServerServiceIsReady),
 		})
 		deployInfrastructure = g.Add(flow.Task{
@@ -221,12 +226,6 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn:           flow.TaskFn(botanist.PersistEncryptionConfiguration),
 			Dependencies: flow.NewTaskIDs(deployNamespace, ensureShootStateExists, generateEncryptionConfigurationMetaData, generateSecrets),
 		})
-		// TODO: This can be removed in a future version once all etcd encryption configuration secrets have been cleaned up.
-		_ = g.Add(flow.Task{
-			Name:         "Removing old etcd encryption configuration secret from garden cluster",
-			Fn:           flow.TaskFn(botanist.RemoveOldETCDEncryptionSecretFromGardener),
-			Dependencies: flow.NewTaskIDs(persistETCDEncryptionConfiguration),
-		})
 		createOrUpdateETCDEncryptionConfiguration = g.Add(flow.Task{
 			Name:         "Applying etcd encryption configuration",
 			Fn:           flow.TaskFn(botanist.ApplyEncryptionConfiguration),
@@ -252,7 +251,7 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 		_ = g.Add(flow.Task{
 			Name:         "Deploying vpn-seed-server",
 			Fn:           flow.TaskFn(botanist.DeployVPNServer).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(deploySecrets),
+			Dependencies: flow.NewTaskIDs(deploySecrets, deployNamespace),
 		})
 		deployControlPlaneExposure = g.Add(flow.Task{
 			Name:         "Deploying shoot control plane exposure components",
@@ -289,16 +288,6 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn:           flow.TaskFn(botanist.DeployKubeScheduler).RetryUntilTimeout(defaultInterval, defaultTimeout),
 			Dependencies: flow.NewTaskIDs(deploySecrets, waitUntilKubeAPIServerIsReady),
 		})
-		deployKonnectivityServer = g.Add(flow.Task{
-			Name:         "Deploying konnectivity-server",
-			Fn:           flow.TaskFn(botanist.DeployKonnectivityServer).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(deploySecrets),
-		})
-		waitUntilKonnectityServerReady = g.Add(flow.Task{
-			Name:         "Waiting until konnectivity-server is ready",
-			Fn:           flow.TaskFn(botanist.Shoot.Components.ControlPlane.KonnectivityServer.Wait),
-			Dependencies: flow.NewTaskIDs(deployKonnectivityServer),
-		})
 		deployKubeControllerManager = g.Add(flow.Task{
 			Name:         "Deploying Kubernetes controller manager",
 			Fn:           flow.TaskFn(botanist.DeployKubeControllerManager).RetryUntilTimeout(defaultInterval, defaultTimeout),
@@ -312,7 +301,7 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 		deployOperatingSystemConfig = g.Add(flow.Task{
 			Name:         "Deploying operating system specific configuration for shoot workers",
 			Fn:           flow.TaskFn(botanist.DeployOperatingSystemConfig).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(deployReferencedResources, waitUntilInfrastructureReady, waitUntilControlPlaneReady),
+			Dependencies: flow.NewTaskIDs(deployReferencedResources, waitUntilInfrastructureReady, waitUntilControlPlaneReady, deployLokiRBACProxy),
 		})
 		waitUntilOperatingSystemConfigReady = g.Add(flow.Task{
 			Name:         "Waiting until operating system configurations for worker nodes have been reconciled",
@@ -345,14 +334,19 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Dependencies: flow.NewTaskIDs(deployNetwork),
 		})
 		_ = g.Add(flow.Task{
+			Name:         "Deploying shoot cluster-identity",
+			Fn:           flow.TaskFn(botanist.DeployClusterIdentity).RetryUntilTimeout(defaultInterval, defaultTimeout).SkipIf(o.Shoot.HibernationEnabled),
+			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, ensureShootClusterIdentity, waitUntilOperatingSystemConfigReady),
+		})
+		_ = g.Add(flow.Task{
 			Name:         "Deploying shoot namespaces system component",
 			Fn:           flow.TaskFn(botanist.Shoot.Components.SystemComponents.Namespaces.Deploy).RetryUntilTimeout(defaultInterval, defaultTimeout).SkipIf(o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, ensureShootClusterIdentity, waitUntilOperatingSystemConfigReady),
+			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, waitUntilOperatingSystemConfigReady),
 		})
 		_ = g.Add(flow.Task{
 			Name:         "Deploying metrics-server system component",
 			Fn:           flow.TaskFn(botanist.DeployMetricsServer).RetryUntilTimeout(defaultInterval, defaultTimeout).SkipIf(o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, ensureShootClusterIdentity, waitUntilOperatingSystemConfigReady),
+			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, waitUntilOperatingSystemConfigReady),
 		})
 		deployManagedResourcesForAddons = g.Add(flow.Task{
 			Name: "Deploying managed resources for system components and optional addons",
@@ -387,20 +381,25 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn:           flow.TaskFn(botanist.WaitUntilNginxIngressServiceIsReady).DoIf(gardencorev1beta1helper.NginxIngressEnabled(botanist.Shoot.Info.Spec.Addons)).SkipIf(o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(deployManagedResourcesForAddons, initializeShootClients, waitUntilWorkerReady, ensureShootClusterIdentity),
 		})
-		ensureIngressDomainDNSRecord = g.Add(flow.Task{
-			Name:         "Ensuring nginx ingress DNS record",
-			Fn:           flow.TaskFn(botanist.EnsureIngressDNSRecord),
+		deployIngressDomainDNSRecord = g.Add(flow.Task{
+			Name:         "Deploying nginx ingress DNS record",
+			Fn:           flow.TaskFn(botanist.DeployIngressDNSResources).DoIf(!o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(nginxLBReady),
+		})
+		_ = g.Add(flow.Task{
+			Name:         "Deploying additional DNS providers",
+			Fn:           flow.TaskFn(botanist.DeployAdditionalDNSProviders).DoIf(!o.Shoot.HibernationEnabled),
+			Dependencies: flow.NewTaskIDs(deployInternalDomainDNSRecord, deployExternalDomainDNSRecord, deployIngressDomainDNSRecord),
 		})
 		vpnLBReady = g.Add(flow.Task{
 			Name:         "Waiting until vpn-shoot LoadBalancer is ready",
-			Fn:           flow.TaskFn(botanist.WaitUntilVpnShootServiceIsReady).SkipIf(o.Shoot.HibernationEnabled || o.Shoot.KonnectivityTunnelEnabled || o.Shoot.ReversedVPNEnabled),
+			Fn:           flow.TaskFn(botanist.WaitUntilVpnShootServiceIsReady).SkipIf(o.Shoot.HibernationEnabled || o.Shoot.ReversedVPNEnabled),
 			Dependencies: flow.NewTaskIDs(deployManagedResourcesForAddons, waitUntilNetworkIsReady, waitUntilWorkerReady),
 		})
 		waitUntilTunnelConnectionExists = g.Add(flow.Task{
 			Name:         "Waiting until the Kubernetes API server can connect to the Shoot workers",
 			Fn:           flow.TaskFn(botanist.WaitUntilTunnelConnectionExists).SkipIf(o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(deployManagedResourcesForAddons, waitUntilNetworkIsReady, waitUntilWorkerReady, waitUntilKonnectityServerReady, vpnLBReady),
+			Dependencies: flow.NewTaskIDs(deployManagedResourcesForAddons, waitUntilNetworkIsReady, waitUntilWorkerReady, vpnLBReady),
 		})
 		_ = g.Add(flow.Task{
 			Name:         "Waiting until all shoot worker nodes have updated the cloud config user data",
@@ -440,25 +439,20 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn:           flow.TaskFn(botanist.HibernateControlPlane).RetryUntilTimeout(defaultInterval, 2*time.Minute).DoIf(o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(initializeShootClients, deploySeedMonitoring, deploySeedLogging, deployClusterAutoscaler),
 		})
-		destroyExternalDNSRecord = g.Add(flow.Task{
+		_ = g.Add(flow.Task{
+			Name:         "Destroying ingress domain DNS record if hibernated",
+			Fn:           flow.TaskFn(botanist.DestroyIngressDNSResources).DoIf(o.Shoot.HibernationEnabled),
+			Dependencies: flow.NewTaskIDs(hibernateControlPlane),
+		})
+		_ = g.Add(flow.Task{
 			Name:         "Destroying external domain DNS record if hibernated",
-			Fn:           flow.TaskFn(botanist.Shoot.Components.Extensions.DNS.ExternalEntry.Destroy).DoIf(o.Shoot.HibernationEnabled),
+			Fn:           flow.TaskFn(botanist.DestroyExternalDNSResources).DoIf(o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(hibernateControlPlane),
 		})
 		_ = g.Add(flow.Task{
-			Name:         "Waiting until the external domain DNS record was destroyed if hibernated",
-			Fn:           flow.TaskFn(botanist.Shoot.Components.Extensions.DNS.ExternalEntry.WaitCleanup).DoIf(o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(destroyExternalDNSRecord),
-		})
-		destroyInternalDNSRecord = g.Add(flow.Task{
 			Name:         "Destroying internal domain DNS record if hibernated",
-			Fn:           flow.TaskFn(botanist.Shoot.Components.Extensions.DNS.InternalEntry.Destroy).DoIf(o.Shoot.HibernationEnabled),
+			Fn:           flow.TaskFn(botanist.DestroyInternalDNSResources).DoIf(o.Shoot.HibernationEnabled),
 			Dependencies: flow.NewTaskIDs(hibernateControlPlane),
-		})
-		_ = g.Add(flow.Task{
-			Name:         "Waiting until the internal domain DNS record was destroyed if hibernated",
-			Fn:           flow.TaskFn(botanist.Shoot.Components.Extensions.DNS.InternalEntry.WaitCleanup).DoIf(o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(destroyInternalDNSRecord),
 		})
 		deployExtensionResources = g.Add(flow.Task{
 			Name:         "Deploying extension resources",
@@ -516,14 +510,6 @@ func (c *Controller) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Dependencies: flow.NewTaskIDs(deploySecrets, waitUntilKubeAPIServerIsReady, deployManagedResourcesForAddons, deployManagedResourceForCloudConfigExecutor, hibernateControlPlane),
 		})
 	)
-
-	for k, v := range botanist.Shoot.Components.Extensions.DNS.AdditionalProviders {
-		_ = g.Add(flow.Task{
-			Name:         fmt.Sprintf("Ensuring additional DNSProvider %q", k),
-			Fn:           flow.TaskFn(component.OpWaiter(v).Deploy).DoIf(!o.Shoot.HibernationEnabled),
-			Dependencies: flow.NewTaskIDs(deployInternalDomainDNSRecord, deployExternalDomainDNSRecord, ensureIngressDomainDNSRecord),
-		})
-	}
 
 	f := g.Compile()
 

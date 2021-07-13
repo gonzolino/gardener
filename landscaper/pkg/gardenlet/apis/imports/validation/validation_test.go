@@ -115,31 +115,6 @@ var _ = Describe("ValidateLandscaperImports", func() {
 		})
 
 		Context("validate Gardenlet configuration", func() {
-			It("should validate that the Seed selector is not set", func() {
-				// only pick one required Gardenlet component configuration to show that the configuration is indeed verified
-				// neither seedSelector nor seedConfig are provided. One of them has to be set to
-				// pass the validation of the GardenletConfiguration
-				gardenletConfiguration.SeedSelector = &metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						"x": "y",
-					},
-				}
-				gardenletConfiguration.SeedConfig = nil
-				landscaperGardenletImport.ComponentConfiguration = &gardenletConfiguration
-
-				errorList := ValidateLandscaperImports(landscaperGardenletImport)
-				Expect(errorList).To(ConsistOf(
-					PointTo(MatchFields(IgnoreExtras, Fields{
-						"Type":  Equal(field.ErrorTypeForbidden),
-						"Field": Equal("componentConfiguration.seedSelector"),
-					})),
-					PointTo(MatchFields(IgnoreExtras, Fields{
-						"Type":  Equal(field.ErrorTypeRequired),
-						"Field": Equal("componentConfiguration.seedConfig"),
-					})),
-				))
-			})
-
 			It("should validate that the kubeconfig in the GardenClientConnection is not set", func() {
 				gardenletConfiguration.GardenClientConnection = &gardenletconfigv1alpha1.GardenClientConnection{
 					ClientConnectionConfiguration: componentbaseconfigv1alpha1.ClientConnectionConfiguration{
@@ -200,7 +175,7 @@ var _ = Describe("ValidateLandscaperImports", func() {
 			})
 
 			It("should validate that the replica count is not negative", func() {
-				landscaperGardenletImport.DeploymentConfiguration.ReplicaCount = pointer.Int32Ptr(-1)
+				landscaperGardenletImport.DeploymentConfiguration.ReplicaCount = pointer.Int32(-1)
 				landscaperGardenletImport.ComponentConfiguration = &gardenletConfiguration
 
 				errorList := ValidateLandscaperImports(landscaperGardenletImport)
@@ -213,7 +188,7 @@ var _ = Describe("ValidateLandscaperImports", func() {
 			})
 
 			It("should validate that the RevisionHistoryLimit is not negative", func() {
-				landscaperGardenletImport.DeploymentConfiguration.RevisionHistoryLimit = pointer.Int32Ptr(-1)
+				landscaperGardenletImport.DeploymentConfiguration.RevisionHistoryLimit = pointer.Int32(-1)
 				landscaperGardenletImport.ComponentConfiguration = &gardenletConfiguration
 
 				errorList := ValidateLandscaperImports(landscaperGardenletImport)
@@ -226,7 +201,7 @@ var _ = Describe("ValidateLandscaperImports", func() {
 			})
 
 			It("should validate that the service account name is valid", func() {
-				landscaperGardenletImport.DeploymentConfiguration.ServiceAccountName = pointer.StringPtr("x121ä232..")
+				landscaperGardenletImport.DeploymentConfiguration.ServiceAccountName = pointer.String("x121ä232..")
 				landscaperGardenletImport.ComponentConfiguration = &gardenletConfiguration
 
 				errorList := ValidateLandscaperImports(landscaperGardenletImport)

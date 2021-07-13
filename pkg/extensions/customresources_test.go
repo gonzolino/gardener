@@ -23,25 +23,25 @@ import (
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	. "github.com/gardener/gardener/pkg/extensions"
 	"github.com/gardener/gardener/pkg/logger"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
 	mocktime "github.com/gardener/gardener/pkg/mock/go/time"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/test"
 
 	"github.com/golang/mock/gomock"
-	"github.com/sirupsen/logrus"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/types"
+	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var _ = Describe("extensions", func() {
@@ -52,7 +52,8 @@ var _ = Describe("extensions", func() {
 		mockNow *mocktime.MockNow
 		now     time.Time
 
-		c client.Client
+		c      client.Client
+		scheme *runtime.Scheme
 
 		defaultInterval  time.Duration
 		defaultTimeout   time.Duration
@@ -70,9 +71,9 @@ var _ = Describe("extensions", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockNow = mocktime.NewMockNow(ctrl)
 
-		s := runtime.NewScheme()
-		Expect(extensionsv1alpha1.AddToScheme(s)).NotTo(HaveOccurred())
-		c = fake.NewFakeClientWithScheme(s)
+		scheme = runtime.NewScheme()
+		Expect(extensionsv1alpha1.AddToScheme(scheme)).NotTo(HaveOccurred())
+		c = fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		defaultInterval = 1 * time.Millisecond
 		defaultTimeout = 1 * time.Millisecond
@@ -97,60 +98,64 @@ var _ = Describe("extensions", func() {
 		ctrl.Finish()
 	})
 
-	Describe("#WaitUntilExtensionCRReady", func() {
-		It("should return error if extension CR does not exist", func() {
-			err := WaitUntilExtensionCRReady(
+	Describe("#WaitUntilExtensionObjectReady", func() {
+		AfterEach(func() {
+			Expect(client.ObjectKeyFromObject(expected)).To(Equal(client.ObjectKey{Namespace: namespace, Name: name}), "should not reset object's key")
+		})
+
+		It("should return error if extension object does not exist", func() {
+			err := WaitUntilExtensionObjectReady(
 				ctx, c, log,
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+				expected, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultTimeout, defaultTimeout, nil,
 			)
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should return error if extension CR is not ready", func() {
+		It("should return error if extension object is not ready", func() {
 			expected.Status.LastError = &gardencorev1beta1.LastError{
 				Description: "Some error",
 			}
 
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
-			err := WaitUntilExtensionCRReady(
+			err := WaitUntilExtensionObjectReady(
 				ctx, c, log,
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+				expected, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultThreshold, defaultTimeout, nil,
 			)
 			Expect(err).To(HaveOccurred(), "worker readiness error")
 		})
 
-		It("should return success if extension CR is ready", func() {
+		It("should return success if extension object got ready the first time", func() {
+			passedObj := expected.DeepCopy()
 			expected.Status.LastOperation = &gardencorev1beta1.LastOperation{
-				State: gardencorev1beta1.LastOperationStateSucceeded,
+				State:          gardencorev1beta1.LastOperationStateSucceeded,
+				LastUpdateTime: metav1.Now(),
 			}
 
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
-			err := WaitUntilExtensionCRReady(
+			err := WaitUntilExtensionObjectReady(
 				ctx, c, log,
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+				passedObj, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultThreshold, defaultTimeout, nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("should call postReadyFunc if extension CR is ready", func() {
+		It("should call postReadyFunc if extension object is ready", func() {
+			passedObj := expected.DeepCopy()
 			expected.Status.LastOperation = &gardencorev1beta1.LastOperation{
-				State: gardencorev1beta1.LastOperationStateSucceeded,
+				State:          gardencorev1beta1.LastOperationStateSucceeded,
+				LastUpdateTime: metav1.Now(),
 			}
 
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
 
 			val := 0
-			err := WaitUntilExtensionCRReady(
+			err := WaitUntilExtensionObjectReady(
 				ctx, c, log,
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
-				defaultInterval, defaultThreshold, defaultTimeout, func(client.Object) error {
+				passedObj, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout, func() error {
 					val++
 					return nil
 				},
@@ -158,54 +163,141 @@ var _ = Describe("extensions", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(val).To(Equal(1))
 		})
+
+		It("should set passed object to latest state once ready", func() {
+			passedObj := expected.DeepCopy()
+			passedObj.SetAnnotations(map[string]string{"gardener.cloud/operation": "reconcile"})
+			expected.Status.LastOperation = &gardencorev1beta1.LastOperation{
+				State: gardencorev1beta1.LastOperationStateSucceeded,
+			}
+
+			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
+
+			err := WaitUntilExtensionObjectReady(
+				ctx, c, log,
+				passedObj, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout, nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(passedObj).To(Equal(expected))
+		})
 	})
 
 	Describe("#WaitUntilObjectReadyWithHealthFunction", func() {
-		It("should return error if object does not exist error", func() {
+		AfterEach(func() {
+			Expect(client.ObjectKeyFromObject(expected)).To(Equal(client.ObjectKey{Namespace: namespace, Name: name}), "should not reset object's key")
+		})
+
+		It("should return error if object does not exist", func() {
 			err := WaitUntilObjectReadyWithHealthFunction(
 				ctx, c, log,
 				func(obj client.Object) error {
 					return nil
 				},
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+				expected, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultThreshold, defaultTimeout,
 				nil,
 			)
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should return error if ready func returns error", func() {
-			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
-			err := WaitUntilObjectReadyWithHealthFunction(
-				ctx, c, log,
-				func(obj client.Object) error {
-					return errors.New("error")
-				},
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
-				defaultInterval, defaultThreshold, defaultTimeout,
-				nil,
-			)
-			Expect(err).To(HaveOccurred())
-		})
+		It("should retry getting object if it does not exist in the cache yet", func() {
+			mc := mockclient.NewMockClient(ctrl)
+			mc.EXPECT().Scheme().Return(scheme).AnyTimes()
 
-		It("should return success if health func does not return error", func() {
-			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
+			gomock.InOrder(
+				mc.EXPECT().Get(gomock.Any(), client.ObjectKeyFromObject(expected), gomock.AssignableToTypeOf(expected)).
+					Return(apierrors.NewNotFound(extensionsv1alpha1.Resource("workers"), expected.Name)),
+				mc.EXPECT().Get(gomock.Any(), client.ObjectKeyFromObject(expected), gomock.AssignableToTypeOf(expected)).
+					DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj *extensionsv1alpha1.Worker) error {
+						expected.DeepCopyInto(obj)
+						return nil
+					}),
+			)
+
 			err := WaitUntilObjectReadyWithHealthFunction(
-				ctx, c, log,
+				ctx, mc, log,
 				func(obj client.Object) error {
 					return nil
 				},
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
-				defaultInterval, defaultThreshold, defaultTimeout,
+				expected, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, 5*defaultTimeout,
 				nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
+		It("should return error if ready func returns error", func() {
+			fakeError := &specialWrappingError{
+				error: gardencorev1beta1helper.NewErrorWithCodes("foo", gardencorev1beta1.ErrorInfraUnauthorized),
+			}
+
+			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
+			err := WaitUntilObjectReadyWithHealthFunction(
+				ctx, c, log,
+				func(obj client.Object) error {
+					return fakeError
+				},
+				expected, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout,
+				nil,
+			)
+			Expect(err).To(HaveOccurred())
+
+			// ensure, that errors are properly wrapped
+			var specialError interface {
+				Special()
+			}
+			Expect(errors.As(err, &specialError)).To(BeTrue(), "should properly wrap the error returned by the health func")
+			Expect(gardencorev1beta1helper.ExtractErrorCodes(err)).To(ConsistOf(gardencorev1beta1.ErrorInfraUnauthorized), "should be able to extract error codes from wrapped error")
+		})
+
+		It("should return error if client has not observed latest timestamp annotation", func() {
+			expected.Status.LastOperation = &gardencorev1beta1.LastOperation{
+				State:          gardencorev1beta1.LastOperationStateSucceeded,
+				LastUpdateTime: metav1.Now(),
+			}
+			now = time.Now()
+			metav1.SetMetaDataAnnotation(&expected.ObjectMeta, v1beta1constants.GardenerTimestamp, now.UTC().String())
+			passedObj := expected.DeepCopy()
+			metav1.SetMetaDataAnnotation(&passedObj.ObjectMeta, v1beta1constants.GardenerTimestamp, now.Add(time.Millisecond).UTC().String())
+
+			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
+			err := WaitUntilObjectReadyWithHealthFunction(
+				ctx, c, log,
+				func(obj client.Object) error {
+					return nil
+				},
+				passedObj, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout, nil,
+			)
+			Expect(err).To(MatchError(ContainSubstring("annotation is not")), "worker readiness error")
+		})
+
+		It("should return success if health func does not return error and we observed latest timestamp annotation", func() {
+			expected.Status.LastOperation = &gardencorev1beta1.LastOperation{
+				State:          gardencorev1beta1.LastOperationStateSucceeded,
+				LastUpdateTime: metav1.Now(),
+			}
+			now = time.Now()
+			metav1.SetMetaDataAnnotation(&expected.ObjectMeta, v1beta1constants.GardenerTimestamp, now.UTC().String())
+			passedObj := expected.DeepCopy()
+
+			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
+			err := WaitUntilObjectReadyWithHealthFunction(
+				ctx, c, log,
+				func(obj client.Object) error {
+					return nil
+				},
+				passedObj, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout, nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
 		It("should pass correct object to health func", func() {
+			passedObj := expected.DeepCopy()
+			metav1.SetMetaDataAnnotation(&passedObj.ObjectMeta, "foo", "bar")
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "creating worker succeeds")
 			err := WaitUntilObjectReadyWithHealthFunction(
 				ctx, c, log,
@@ -213,8 +305,7 @@ var _ = Describe("extensions", func() {
 					Expect(obj).To(Equal(expected))
 					return nil
 				},
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+				passedObj, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultThreshold, defaultTimeout,
 				nil,
 			)
@@ -234,9 +325,8 @@ var _ = Describe("extensions", func() {
 				func(obj client.Object) error {
 					return nil
 				},
-				func() client.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
-				defaultInterval, defaultThreshold, defaultTimeout, func(client.Object) error {
+				expected, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultThreshold, defaultTimeout, func() error {
 					val++
 					return nil
 				},
@@ -246,17 +336,17 @@ var _ = Describe("extensions", func() {
 		})
 	})
 
-	Describe("#DeleteExtensionCR", func() {
-		It("should not return error if extension CR does not exist", func() {
-			Expect(DeleteExtensionCR(ctx, c, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, namespace, name)).To(Succeed())
+	Describe("#DeleteExtensionObject", func() {
+		It("should not return error if extension object does not exist", func() {
+			Expect(DeleteExtensionObject(ctx, c, expected)).To(Succeed())
 		})
 
 		It("should not return error if deleted successfully", func() {
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
-			Expect(DeleteExtensionCR(ctx, c, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, namespace, name)).To(Succeed())
+			Expect(DeleteExtensionObject(ctx, c, expected)).To(Succeed())
 		})
 
-		It("should delete extension CR", func() {
+		It("should delete extension object", func() {
 			defer test.WithVars(
 				&TimeNow, mockNow.Do,
 			)()
@@ -272,12 +362,12 @@ var _ = Describe("extensions", func() {
 			mc.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&extensionsv1alpha1.Worker{}), gomock.Any()).SetArg(1, *expected).Return(nil)
 			mc.EXPECT().Delete(ctx, expected).Times(1).Return(fmt.Errorf("some random error"))
 
-			Expect(DeleteExtensionCR(ctx, mc, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, namespace, name)).To(HaveOccurred())
+			Expect(DeleteExtensionObject(ctx, mc, expected)).To(HaveOccurred())
 		})
 	})
 
-	Describe("#DeleteExtensionCRs", func() {
-		It("should delete all extension CRs", func() {
+	Describe("#DeleteExtensionObjects", func() {
+		It("should delete all extension objects", func() {
 			deletionTimestamp := metav1.Now()
 			expected.ObjectMeta.DeletionTimestamp = &deletionTimestamp
 
@@ -289,11 +379,10 @@ var _ = Describe("extensions", func() {
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 			Expect(c.Create(ctx, expected2)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 
-			err := DeleteExtensionCRs(
+			err := DeleteExtensionObjects(
 				ctx,
 				c,
 				list,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} },
 				namespace,
 				func(obj extensionsv1alpha1.Object) bool { return true },
 			)
@@ -302,8 +391,8 @@ var _ = Describe("extensions", func() {
 		})
 	})
 
-	Describe("#WaitUntilExtensionCRsDeleted", func() {
-		It("should return error if atleast one extension CR is not deleted", func() {
+	Describe("#WaitUntilExtensionObjectsDeleted", func() {
+		It("should return error if atleast one extension object is not deleted", func() {
 			list := &extensionsv1alpha1.WorkerList{}
 
 			deletionTimestamp := metav1.Now()
@@ -311,12 +400,12 @@ var _ = Describe("extensions", func() {
 
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 
-			err := WaitUntilExtensionCRsDeleted(
+			err := WaitUntilExtensionObjectsDeleted(
 				ctx,
 				c,
 				log,
 				list,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
+				extensionsv1alpha1.WorkerResource,
 				namespace, defaultInterval, defaultTimeout,
 				func(object extensionsv1alpha1.Object) bool { return true })
 
@@ -325,12 +414,12 @@ var _ = Describe("extensions", func() {
 
 		It("should return success if all extensions CRs are deleted", func() {
 			list := &extensionsv1alpha1.WorkerList{}
-			err := WaitUntilExtensionCRsDeleted(
+			err := WaitUntilExtensionObjectsDeleted(
 				ctx,
 				c,
 				log,
 				list,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
+				extensionsv1alpha1.WorkerResource,
 				namespace, defaultInterval, defaultTimeout,
 				func(object extensionsv1alpha1.Object) bool { return true })
 			Expect(err).NotTo(HaveOccurred())
@@ -338,30 +427,51 @@ var _ = Describe("extensions", func() {
 
 	})
 
-	Describe("#WaitUntilExtensionCRDeleted", func() {
-		It("should return error if extension CR is not deleted", func() {
+	Describe("#WaitUntilExtensionObjectDeleted", func() {
+		AfterEach(func() {
+			Expect(client.ObjectKeyFromObject(expected)).To(Equal(client.ObjectKey{Namespace: namespace, Name: name}), "should not reset object's key")
+		})
+
+		It("should return error if extension object is not deleted", func() {
 			deletionTimestamp := metav1.Now()
 			expected.ObjectMeta.DeletionTimestamp = &deletionTimestamp
 
 			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
-			err := WaitUntilExtensionCRDeleted(ctx, c, log,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+			err := WaitUntilExtensionObjectDeleted(ctx, c, log,
+				expected, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultTimeout)
 
 			Expect(err).To(HaveOccurred())
 		})
 
+		It("should return error with codes if extension object has status.lastError.codes", func() {
+			deletionTimestamp := metav1.Now()
+			expected.ObjectMeta.DeletionTimestamp = &deletionTimestamp
+			expected.Status.LastError = &gardencorev1beta1.LastError{
+				Description: "invalid credentials",
+				Codes:       []gardencorev1beta1.ErrorCode{gardencorev1beta1.ErrorInfraUnauthorized},
+			}
+
+			Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
+			err := WaitUntilExtensionObjectDeleted(ctx, c, log,
+				expected, extensionsv1alpha1.WorkerResource,
+				defaultInterval, defaultTimeout)
+
+			Expect(err).To(HaveOccurred())
+
+			// ensure, that errors are properly wrapped
+			Expect(gardencorev1beta1helper.ExtractErrorCodes(err)).To(ConsistOf(gardencorev1beta1.ErrorInfraUnauthorized), "should be able to extract error codes from wrapped error")
+		})
+
 		It("should return success if extensions CRs gets deleted", func() {
-			err := WaitUntilExtensionCRDeleted(ctx, c, log,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, extensionsv1alpha1.WorkerResource,
-				namespace, name,
+			err := WaitUntilExtensionObjectDeleted(ctx, c, log,
+				expected, extensionsv1alpha1.WorkerResource,
 				defaultInterval, defaultTimeout)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
-	Context("restoring extension CR state", func() {
+	Context("restoring extension object state", func() {
 		var (
 			expectedState *runtime.RawExtension
 			shootState    *gardencorev1alpha1.ShootState
@@ -384,7 +494,7 @@ var _ = Describe("extensions", func() {
 		})
 
 		Describe("#RestoreExtensionWithDeployFunction", func() {
-			It("should restore the extension CR state with the provided deploy fuction and annotate it for restoration", func() {
+			It("should restore the extension object state with the provided deploy fuction and annotate it for restoration", func() {
 				defer test.WithVars(
 					&TimeNow, mockNow.Do,
 				)()
@@ -395,7 +505,6 @@ var _ = Describe("extensions", func() {
 					c,
 					shootState,
 					extensionsv1alpha1.WorkerResource,
-					namespace,
 					func(ctx context.Context, operationAnnotation string) (extensionsv1alpha1.Object, error) {
 						Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 						return expected, nil
@@ -422,7 +531,6 @@ var _ = Describe("extensions", func() {
 					c,
 					shootState,
 					extensionsv1alpha1.WorkerResource,
-					namespace,
 					func(ctx context.Context, operationAnnotation string) (extensionsv1alpha1.Object, error) {
 						Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 						return expected, nil
@@ -439,19 +547,18 @@ var _ = Describe("extensions", func() {
 		})
 
 		Describe("#RestoreExtensionObjectState", func() {
-			It("should return error if the extension CR does not exist", func() {
+			It("should return error if the extension object does not exist", func() {
 				err := RestoreExtensionObjectState(
 					ctx,
 					c,
 					shootState,
-					namespace,
 					expected,
 					extensionsv1alpha1.WorkerResource,
 				)
 				Expect(err).To(HaveOccurred())
 			})
 
-			It("should update the state if the extension CR exists", func() {
+			It("should update the state if the extension object exists", func() {
 				defer test.WithVars(
 					&TimeNow, mockNow.Do,
 				)()
@@ -462,7 +569,6 @@ var _ = Describe("extensions", func() {
 					ctx,
 					c,
 					shootState,
-					namespace,
 					expected,
 					extensionsv1alpha1.WorkerResource,
 				)
@@ -472,12 +578,12 @@ var _ = Describe("extensions", func() {
 		})
 	})
 
-	Describe("#MigrateExtensionCR", func() {
-		It("should not return error if extension CR does not exist", func() {
-			Expect(MigrateExtensionCR(ctx, c, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, namespace, name)).To(Succeed())
+	Describe("#MigrateExtensionObject", func() {
+		It("should not return error if extension object does not exist", func() {
+			Expect(MigrateExtensionObject(ctx, c, expected)).To(Succeed())
 		})
 
-		It("should properly annotate extension CR for migration", func() {
+		It("should properly annotate extension object for migration", func() {
 			defer test.WithVars(
 				&TimeNow, mockNow.Do,
 			)()
@@ -491,22 +597,21 @@ var _ = Describe("extensions", func() {
 			}
 
 			mc := mockclient.NewMockClient(ctrl)
-			mc.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(&extensionsv1alpha1.Worker{})).SetArg(2, *expected).Return(nil)
 			mc.EXPECT().Patch(ctx, expectedWithAnnotations, gomock.AssignableToTypeOf(client.MergeFrom(expected))).Return(nil)
 
-			err := MigrateExtensionCR(ctx, mc, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} }, namespace, name)
+			err := MigrateExtensionObject(ctx, mc, expected)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
-	Describe("#MigrateExtensionCRs", func() {
+	Describe("#MigrateExtensionObjects", func() {
 		It("should not return error if there are no extension resources", func() {
 			Expect(
-				MigrateExtensionCRs(ctx, c, &extensionsv1alpha1.BackupBucketList{}, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.BackupBucket{} }, namespace),
+				MigrateExtensionObjects(ctx, c, &extensionsv1alpha1.BackupBucketList{}, namespace),
 			).To(Succeed())
 		})
 
-		It("should properly annotate all extension CRs for migration", func() {
+		It("should properly annotate all extension objects for migration", func() {
 			for i := 0; i < 4; i++ {
 				containerRuntimeExtension := &extensionsv1alpha1.ContainerRuntime{
 					ObjectMeta: metav1.ObjectMeta{
@@ -518,7 +623,7 @@ var _ = Describe("extensions", func() {
 			}
 
 			Expect(
-				MigrateExtensionCRs(ctx, c, &extensionsv1alpha1.ContainerRuntimeList{}, func() extensionsv1alpha1.Object { return &extensionsv1alpha1.ContainerRuntime{} }, namespace),
+				MigrateExtensionObjects(ctx, c, &extensionsv1alpha1.ContainerRuntimeList{}, namespace),
 			).To(Succeed())
 
 			containerRuntimeList := &extensionsv1alpha1.ContainerRuntimeList{}
@@ -530,13 +635,16 @@ var _ = Describe("extensions", func() {
 		})
 	})
 
-	Describe("#WaitUntilExtensionCRMigrated", func() {
+	Describe("#WaitUntilExtensionObjectMigrated", func() {
+		AfterEach(func() {
+			Expect(client.ObjectKeyFromObject(expected)).To(Equal(client.ObjectKey{Namespace: namespace, Name: name}), "should not reset object's key")
+		})
+
 		It("should not return error if resource does not exist", func() {
-			err := WaitUntilExtensionCRMigrated(
+			err := WaitUntilExtensionObjectMigrated(
 				ctx,
 				c,
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} },
-				namespace, name,
+				expected,
 				defaultInterval, defaultTimeout,
 			)
 			Expect(err).NotTo(HaveOccurred())
@@ -546,11 +654,10 @@ var _ = Describe("extensions", func() {
 			func(lastOperation *gardencorev1beta1.LastOperation, match func() GomegaMatcher) {
 				expected.Status.LastOperation = lastOperation
 				Expect(c.Create(ctx, expected)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
-				err := WaitUntilExtensionCRMigrated(
+				err := WaitUntilExtensionObjectMigrated(
 					ctx,
 					c,
-					func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} },
-					namespace, name,
+					expected,
 					defaultInterval, defaultTimeout,
 				)
 				Expect(err).To(match())
@@ -570,13 +677,13 @@ var _ = Describe("extensions", func() {
 		)
 	})
 
-	Describe("#WaitUntilExtensionCRsMigrated", func() {
-		It("should not return error if there are no extension CRs", func() {
-			Expect(WaitUntilExtensionCRsMigrated(
+	Describe("#WaitUntilExtensionObjectsMigrated", func() {
+		It("should not return error if there are no extension objects", func() {
+			Expect(WaitUntilExtensionObjectsMigrated(
 				ctx,
 				c,
 				&extensionsv1alpha1.WorkerList{},
-				func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} },
+
 				namespace,
 				defaultInterval,
 				defaultTimeout)).To(Succeed())
@@ -590,11 +697,10 @@ var _ = Describe("extensions", func() {
 					existing.Name = fmt.Sprintf("worker-%d", i)
 					Expect(c.Create(ctx, existing)).ToNot(HaveOccurred(), "adding pre-existing worker succeeds")
 				}
-				err := WaitUntilExtensionCRsMigrated(
+				err := WaitUntilExtensionObjectsMigrated(
 					ctx,
 					c,
 					&extensionsv1alpha1.WorkerList{},
-					func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Worker{} },
 					namespace,
 					defaultInterval,
 					defaultTimeout)
@@ -648,9 +754,9 @@ var _ = Describe("extensions", func() {
 		)
 	})
 
-	Describe("#AnnotateExtensionObjectWithOperation", func() {
+	Describe("#AnnotateObjectWithOperation", func() {
 		It("should return error if object does not exist", func() {
-			Expect(AnnotateExtensionObjectWithOperation(ctx, c, expected, v1beta1constants.GardenerOperationMigrate)).NotTo(Succeed())
+			Expect(AnnotateObjectWithOperation(ctx, c, expected, v1beta1constants.GardenerOperationMigrate)).NotTo(Succeed())
 		})
 
 		It("should annotate extension object with operation", func() {
@@ -669,8 +775,18 @@ var _ = Describe("extensions", func() {
 			mc := mockclient.NewMockClient(ctrl)
 			mc.EXPECT().Patch(ctx, expectedWithAnnotations, gomock.AssignableToTypeOf(client.MergeFrom(expected))).Return(nil)
 
-			err := AnnotateExtensionObjectWithOperation(ctx, mc, expected, v1beta1constants.GardenerOperationMigrate)
+			err := AnnotateObjectWithOperation(ctx, mc, expected, v1beta1constants.GardenerOperationMigrate)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })
+
+type specialWrappingError struct {
+	error
+}
+
+func (s *specialWrappingError) Unwrap() error {
+	return s.error
+}
+
+func (s *specialWrappingError) Special() {}

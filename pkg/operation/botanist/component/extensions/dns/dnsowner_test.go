@@ -64,7 +64,7 @@ var _ = Describe("#DNSOwner", func() {
 
 		vals = &OwnerValues{
 			Name:    "test-deploy",
-			Active:  pointer.BoolPtr(true),
+			Active:  pointer.Bool(true),
 			OwnerID: ownerID,
 		}
 
@@ -74,7 +74,7 @@ var _ = Describe("#DNSOwner", func() {
 			},
 			Spec: dnsv1alpha1.DNSOwnerSpec{
 				OwnerId: ownerID,
-				Active:  pointer.BoolPtr(true),
+				Active:  pointer.Bool(true),
 			},
 		}
 
@@ -129,6 +129,12 @@ var _ = Describe("#DNSOwner", func() {
 				}}).Times(1).Return(fmt.Errorf("some random error"))
 
 			Expect(NewOwner(mc, deployNS, vals).Destroy(ctx)).To(HaveOccurred())
+		})
+	})
+
+	Describe("#Wait", func() {
+		It("should succeed", func() {
+			Expect(defaultDepWaiter.Wait(ctx)).To(Succeed())
 		})
 	})
 

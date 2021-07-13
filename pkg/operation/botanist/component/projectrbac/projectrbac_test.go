@@ -126,8 +126,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			Rules: []rbacv1.PolicyRule{
@@ -152,8 +152,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -170,8 +170,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			Rules: []rbacv1.PolicyRule{
@@ -190,8 +190,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -208,8 +208,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			Rules: []rbacv1.PolicyRule{
@@ -234,8 +234,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -252,8 +252,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -270,8 +270,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			Rules: []rbacv1.PolicyRule{
@@ -296,8 +296,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -314,8 +314,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -332,8 +332,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 				Labels: map[string]string{
 					"gardener.cloud/role":         "extension-project-role",
@@ -354,8 +354,8 @@ var _ = Describe("ProjectRBAC", func() {
 					APIVersion:         "core.gardener.cloud/v1beta1",
 					Kind:               "Project",
 					Name:               projectName,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(false),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(false),
 				}},
 				Labels: map[string]string{
 					"gardener.cloud/role":         "extension-project-role",
@@ -403,37 +403,37 @@ var _ = Describe("ProjectRBAC", func() {
 
 			// project admin
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleProjectAdmin.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRole{}))
-			c.EXPECT().Update(ctx, clusterRoleProjectAdmin)
+			c.EXPECT().Patch(ctx, clusterRoleProjectAdmin, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingProjectAdmin.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
-			c.EXPECT().Update(ctx, clusterRoleBindingProjectAdmin)
+			c.EXPECT().Patch(ctx, clusterRoleBindingProjectAdmin, gomock.Any())
 
 			// project uam
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleProjectUAM.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRole{}))
-			c.EXPECT().Update(ctx, clusterRoleProjectUAM)
+			c.EXPECT().Patch(ctx, clusterRoleProjectUAM, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingProjectUAM.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
-			c.EXPECT().Update(ctx, clusterRoleBindingProjectUAM)
+			c.EXPECT().Patch(ctx, clusterRoleBindingProjectUAM, gomock.Any())
 
 			// project member
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleProjectMember.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRole{}))
-			c.EXPECT().Update(ctx, clusterRoleProjectMember)
+			c.EXPECT().Patch(ctx, clusterRoleProjectMember, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingProjectMember.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
-			c.EXPECT().Update(ctx, clusterRoleBindingProjectMember)
+			c.EXPECT().Patch(ctx, clusterRoleBindingProjectMember, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(roleBindingProjectMember.Namespace, roleBindingProjectMember.Name), gomock.AssignableToTypeOf(&rbacv1.RoleBinding{}))
-			c.EXPECT().Update(ctx, roleBindingProjectMember)
+			c.EXPECT().Patch(ctx, roleBindingProjectMember, gomock.Any())
 
 			// project viewer
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleProjectViewer.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRole{}))
-			c.EXPECT().Update(ctx, clusterRoleProjectViewer)
+			c.EXPECT().Patch(ctx, clusterRoleProjectViewer, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingProjectViewer.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
-			c.EXPECT().Update(ctx, clusterRoleBindingProjectViewer)
+			c.EXPECT().Patch(ctx, clusterRoleBindingProjectViewer, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(roleBindingProjectViewer.Namespace, roleBindingProjectViewer.Name), gomock.AssignableToTypeOf(&rbacv1.RoleBinding{}))
-			c.EXPECT().Update(ctx, roleBindingProjectViewer)
+			c.EXPECT().Patch(ctx, roleBindingProjectViewer, gomock.Any())
 
 			// project extension roles
 			c.EXPECT().Get(ctx, kutil.Key(clusterRoleProjectExtensionRole1.Name), gomock.AssignableToTypeOf(&rbacv1.ClusterRole{}))
-			c.EXPECT().Update(ctx, clusterRoleProjectExtensionRole1)
+			c.EXPECT().Patch(ctx, clusterRoleProjectExtensionRole1, gomock.Any())
 			c.EXPECT().Get(ctx, kutil.Key(roleBindingProjectExtensionRole1.Namespace, roleBindingProjectExtensionRole1.Name), gomock.AssignableToTypeOf(&rbacv1.RoleBinding{}))
-			c.EXPECT().Update(ctx, roleBindingProjectExtensionRole1)
+			c.EXPECT().Patch(ctx, roleBindingProjectExtensionRole1, gomock.Any())
 
 			Expect(projectRBAC.Deploy(ctx)).To(Succeed())
 		})

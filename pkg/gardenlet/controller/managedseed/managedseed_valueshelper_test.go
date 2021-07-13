@@ -83,6 +83,10 @@ var _ = Describe("ValuesHelper", func() {
 					QPS:                100,
 					Burst:              130,
 				},
+				BootstrapKubeconfig: &corev1.SecretReference{
+					Name:      "gardenlet-kubeconfig-bootstrap",
+					Namespace: v1beta1constants.GardenNamespace,
+				},
 			},
 			SeedClientConnection: &config.SeedClientConnection{
 				ClientConnectionConfiguration: componentbaseconfig.ClientConnectionConfiguration{
@@ -121,22 +125,22 @@ var _ = Describe("ValuesHelper", func() {
 			{
 				Name:       "gardenlet",
 				Repository: "test-repository",
-				Tag:        pointer.StringPtr("test-tag"),
+				Tag:        pointer.String("test-tag"),
 			},
 		}
 
 		vh = NewValuesHelper(parentConfig, imageVector)
 
 		deployment = &seedmanagementv1alpha1.GardenletDeployment{
-			ReplicaCount:         pointer.Int32Ptr(1),
-			RevisionHistoryLimit: pointer.Int32Ptr(1),
+			ReplicaCount:         pointer.Int32(1),
+			RevisionHistoryLimit: pointer.Int32(1),
 			Image: &seedmanagementv1alpha1.Image{
 				PullPolicy: pullPolicyPtr(corev1.PullIfNotPresent),
 			},
 			PodAnnotations: map[string]string{
 				"foo": "bar",
 			},
-			VPA: pointer.BoolPtr(true),
+			VPA: pointer.Bool(true),
 		}
 		gardenletConfig = &configv1alpha1.GardenletConfiguration{
 			TypeMeta: metav1.TypeMeta{
@@ -161,17 +165,17 @@ var _ = Describe("ValuesHelper", func() {
 		}
 
 		mergedDeployment = &seedmanagementv1alpha1.GardenletDeployment{
-			ReplicaCount:         pointer.Int32Ptr(1),
-			RevisionHistoryLimit: pointer.Int32Ptr(1),
+			ReplicaCount:         pointer.Int32(1),
+			RevisionHistoryLimit: pointer.Int32(1),
 			Image: &seedmanagementv1alpha1.Image{
-				Repository: pointer.StringPtr("test-repository"),
-				Tag:        pointer.StringPtr("test-tag"),
+				Repository: pointer.String("test-repository"),
+				Tag:        pointer.String("test-tag"),
 				PullPolicy: pullPolicyPtr(corev1.PullIfNotPresent),
 			},
 			PodAnnotations: map[string]string{
 				"foo": "bar",
 			},
-			VPA: pointer.BoolPtr(true),
+			VPA: pointer.Bool(true),
 		}
 		mergedGardenletConfig = func(withBootstrap bool) *configv1alpha1.GardenletConfiguration {
 			var kubeconfigPath string

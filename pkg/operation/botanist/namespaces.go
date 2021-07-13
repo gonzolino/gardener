@@ -21,6 +21,7 @@ import (
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/namespaces"
 	"github.com/gardener/gardener/pkg/utils/retry"
@@ -29,7 +30,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // DeploySeedNamespace creates a namespace in the Seed cluster which is used to deploy all the control plane
@@ -42,7 +42,7 @@ func (b *Botanist) DeploySeedNamespace(ctx context.Context) error {
 		},
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, b.K8sSeedClient.Client(), namespace, func() error {
+	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, b.K8sSeedClient.Client(), namespace, func() error {
 		namespace.Annotations = map[string]string{
 			v1beta1constants.ShootUID: string(b.Shoot.Info.Status.UID),
 		}
@@ -87,20 +87,15 @@ func (b *Botanist) DeleteSeedNamespace(ctx context.Context) error {
 
 // WaitUntilSeedNamespaceDeleted waits until the namespace of the Shoot cluster within the Seed cluster is deleted.
 func (b *Botanist) WaitUntilSeedNamespaceDeleted(ctx context.Context) error {
-	return b.waitUntilNamespaceDeleted(ctx, b.Shoot.SeedNamespace)
-}
-
-// WaitUntilNamespaceDeleted waits until the <namespace> within the Seed cluster is deleted.
-func (b *Botanist) waitUntilNamespaceDeleted(ctx context.Context, namespace string) error {
 	return retry.UntilTimeout(ctx, 5*time.Second, 900*time.Second, func(ctx context.Context) (done bool, err error) {
-		if err := b.K8sSeedClient.Client().Get(ctx, client.ObjectKey{Name: namespace}, &corev1.Namespace{}); err != nil {
+		if err := b.K8sSeedClient.Client().Get(ctx, client.ObjectKey{Name: b.Shoot.SeedNamespace}, &corev1.Namespace{}); err != nil {
 			if apierrors.IsNotFound(err) {
 				return retry.Ok()
 			}
 			return retry.SevereError(err)
 		}
-		b.Logger.Infof("Waiting until the namespace '%s' has been cleaned up and deleted in the Seed cluster...", namespace)
-		return retry.MinorError(fmt.Errorf("namespace %q is not yet cleaned up", namespace))
+		b.Logger.Infof("Waiting until the namespace '%s' has been cleaned up and deleted in the Seed cluster...", b.Shoot.SeedNamespace)
+		return retry.MinorError(fmt.Errorf("namespace %q is not yet cleaned up", b.Shoot.SeedNamespace))
 	})
 }
 

@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
@@ -33,8 +35,8 @@ import (
 	"github.com/gardener/gardener/pkg/utils"
 	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/test"
+	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 
 	"github.com/Masterminds/semver"
 	"github.com/golang/mock/gomock"
@@ -43,10 +45,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/pointer"
@@ -72,7 +72,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 			now     time.Time
 
 			apiServerURL            = "https://url-to-apiserver"
-			caBundle                = pointer.StringPtr("ca-bundle")
+			caBundle                = pointer.String("ca-bundle")
 			clusterDNSAddress       = "cluster-dns"
 			clusterDomain           = "cluster-domain"
 			images                  = map[string]*imagevector.Image{"foo": {}}
@@ -143,12 +143,14 @@ var _ = Describe("OperatingSystemConfig", func() {
 					KubeletDataVolumeName: &kubeletDataVolumeName,
 				},
 			}
+			empty    *extensionsv1alpha1.OperatingSystemConfig
 			expected []*extensionsv1alpha1.OperatingSystemConfig
 		)
 
 		BeforeEach(func() {
 			ctrl = gomock.NewController(GinkgoT())
 			mockNow = mocktime.NewMockNow(ctrl)
+			now = time.Now()
 
 			ctx = context.TODO()
 			log = logger.NewNopLogger()
@@ -178,21 +180,30 @@ var _ = Describe("OperatingSystemConfig", func() {
 				},
 			}
 
+			empty = &extensionsv1alpha1.OperatingSystemConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+				},
+			}
+
 			expected = make([]*extensionsv1alpha1.OperatingSystemConfig, 0, 2*len(workers))
 			for _, worker := range workers {
 				var (
-					criName   extensionsv1alpha1.CRIName
-					criConfig *extensionsv1alpha1.CRIConfig
+					criName    extensionsv1alpha1.CRIName
+					criConfig  *extensionsv1alpha1.CRIConfig
+					configHash string
 				)
 				if worker.CRI != nil {
 					criName = extensionsv1alpha1.CRIName(worker.CRI.Name)
 					criConfig = &extensionsv1alpha1.CRIConfig{Name: extensionsv1alpha1.CRIName(worker.CRI.Name)}
+					configHash = "-cf2c8"
 				} else {
 					criName = extensionsv1alpha1.CRINameDocker
+					configHash = "-77ac3"
 				}
 
 				downloaderUnits, downloaderFiles, _ := downloaderConfigFn(
-					"cloud-config-"+worker.Name+"-77ac3",
+					"cloud-config-"+worker.Name+configHash,
 					apiServerURL,
 				)
 				originalUnits, originalFiles, _ := originalConfigFn(components.Context{
@@ -211,7 +222,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 
 				oscDownloader := &extensionsv1alpha1.OperatingSystemConfig{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "cloud-config-" + worker.Name + "-77ac3-downloader",
+						Name:      "cloud-config-" + worker.Name + configHash + "-downloader",
 						Namespace: namespace,
 						Annotations: map[string]string{
 							v1beta1constants.GardenerOperation: v1beta1constants.GardenerOperationReconcile,
@@ -232,7 +243,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 
 				oscOriginal := &extensionsv1alpha1.OperatingSystemConfig{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "cloud-config-" + worker.Name + "-77ac3-original",
+						Name:      "cloud-config-" + worker.Name + configHash + "-original",
 						Namespace: namespace,
 						Annotations: map[string]string{
 							v1beta1constants.GardenerOperation: v1beta1constants.GardenerOperationReconcile,
@@ -246,11 +257,11 @@ var _ = Describe("OperatingSystemConfig", func() {
 						},
 						Purpose:              extensionsv1alpha1.OperatingSystemConfigPurposeReconcile,
 						CRIConfig:            criConfig,
-						ReloadConfigFilePath: pointer.StringPtr("/var/lib/cloud-config-downloader/downloads/cloud_config"),
+						ReloadConfigFilePath: pointer.String("/var/lib/cloud-config-downloader/downloads/cloud_config"),
 						Units:                originalUnits,
 						Files: append(append(originalFiles, downloaderFiles...), extensionsv1alpha1.File{
 							Path:        "/etc/systemd/system/cloud-config-downloader.service",
-							Permissions: pointer.Int32Ptr(0644),
+							Permissions: pointer.Int32(0644),
 							Content: extensionsv1alpha1.FileContent{
 								Inline: &extensionsv1alpha1.FileContentInline{
 									Encoding: "b64",
@@ -273,7 +284,6 @@ var _ = Describe("OperatingSystemConfig", func() {
 
 		Describe("#Deploy", func() {
 			It("should successfully deploy all extensions resources", func() {
-
 				defer test.WithVars(
 					&TimeNow, mockNow.Do,
 					&DownloaderConfigFn, downloaderConfigFn,
@@ -307,18 +317,18 @@ var _ = Describe("OperatingSystemConfig", func() {
 
 			BeforeEach(func() {
 				extensions := make([]gardencorev1alpha1.ExtensionResourceState, 0, 2*len(workers))
-				for _, worker := range workers {
+				for _, osc := range expected {
 					extensions = append(extensions,
 						gardencorev1alpha1.ExtensionResourceState{
-							Name:    pointer.StringPtr("cloud-config-" + worker.Name + "-77ac3-downloader"),
+							Name:    pointer.String(osc.Name),
 							Kind:    extensionsv1alpha1.OperatingSystemConfigResource,
-							Purpose: pointer.StringPtr(string(extensionsv1alpha1.OperatingSystemConfigPurposeProvision)),
+							Purpose: pointer.String(string(extensionsv1alpha1.OperatingSystemConfigPurposeProvision)),
 							State:   &runtime.RawExtension{Raw: stateDownloader},
 						},
 						gardencorev1alpha1.ExtensionResourceState{
-							Name:    pointer.StringPtr("cloud-config-" + worker.Name + "-77ac3-original"),
+							Name:    pointer.String(osc.Name),
 							Kind:    extensionsv1alpha1.OperatingSystemConfigResource,
-							Purpose: pointer.StringPtr(string(extensionsv1alpha1.OperatingSystemConfigPurposeReconcile)),
+							Purpose: pointer.String(string(extensionsv1alpha1.OperatingSystemConfigPurposeReconcile)),
 							State:   &runtime.RawExtension{Raw: stateOriginal},
 						},
 					)
@@ -337,9 +347,10 @@ var _ = Describe("OperatingSystemConfig", func() {
 					&TimeNow, mockNow.Do,
 					&extensions.TimeNow, mockNow.Do,
 				)()
-
 				mockNow.EXPECT().Do().Return(now.UTC()).AnyTimes()
+
 				mc := mockclient.NewMockClient(ctrl)
+				mc.EXPECT().Status().Return(mc).AnyTimes()
 
 				for i := range expected {
 					var state []byte
@@ -349,18 +360,30 @@ var _ = Describe("OperatingSystemConfig", func() {
 						state = stateOriginal
 					}
 
-					expected[i].Annotations[v1beta1constants.GardenerOperation] = v1beta1constants.GardenerOperationWaitForState
-					expectedWithState := expected[i].DeepCopy()
-					expectedWithState.Status = extensionsv1alpha1.OperatingSystemConfigStatus{
-						DefaultStatus: extensionsv1alpha1.DefaultStatus{State: &runtime.RawExtension{Raw: state}},
-					}
-					expectedWithRestore := expectedWithState.DeepCopy()
-					expectedWithRestore.Annotations[v1beta1constants.GardenerOperation] = v1beta1constants.GardenerOperationRestore
+					emptyWithName := empty.DeepCopy()
+					emptyWithName.SetName(expected[i].GetName())
+					mc.EXPECT().Get(ctx, client.ObjectKeyFromObject(emptyWithName), gomock.AssignableToTypeOf(emptyWithName)).
+						Return(apierrors.NewNotFound(extensionsv1alpha1.Resource("operatingsystemconfigs"), emptyWithName.GetName()))
 
-					mc.EXPECT().Get(ctx, kutil.Key(namespace, expected[i].Name), gomock.AssignableToTypeOf(&extensionsv1alpha1.OperatingSystemConfig{})).Return(apierrors.NewNotFound(schema.GroupResource{}, ""))
-					mc.EXPECT().Create(ctx, expected[i])
-					mc.EXPECT().Status().Return(mc)
-					mc.EXPECT().Update(ctx, expectedWithState)
+					// deploy with wait-for-state annotation
+					obj := expected[i].DeepCopy()
+					metav1.SetMetaDataAnnotation(&obj.ObjectMeta, "gardener.cloud/operation", "wait-for-state")
+					metav1.SetMetaDataAnnotation(&obj.ObjectMeta, "gardener.cloud/timestamp", now.UTC().String())
+					obj.TypeMeta = metav1.TypeMeta{}
+					mc.EXPECT().Create(ctx, test.HasObjectKeyOf(obj)).
+						DoAndReturn(func(ctx context.Context, actual client.Object, opts ...client.CreateOption) error {
+							Expect(actual).To(DeepEqual(obj))
+							return nil
+						})
+
+					// restore state
+					expectedWithState := obj.DeepCopy()
+					expectedWithState.Status.State = &runtime.RawExtension{Raw: state}
+					test.EXPECTPatch(ctx, mc, expectedWithState, obj, types.MergePatchType)
+
+					// annotate with restore annotation
+					expectedWithRestore := expectedWithState.DeepCopy()
+					metav1.SetMetaDataAnnotation(&expectedWithRestore.ObjectMeta, "gardener.cloud/operation", "restore")
 					test.EXPECTPatch(ctx, mc, expectedWithRestore, expectedWithState, types.MergePatchType)
 				}
 
@@ -369,7 +392,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 			})
 		})
 
-		Describe("#Wait, #WorkerNameToOperatingSystemConfigsMap", func() {
+		Describe("#Wait", func() {
 			It("should return error when no resources are found", func() {
 				Expect(defaultDepWaiter.Wait(ctx)).To(MatchError(ContainSubstring("not found")))
 			})
@@ -384,7 +407,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 					Expect(c.Create(ctx, expected[i])).To(Succeed())
 				}
 
-				Expect(defaultDepWaiter.Wait(ctx)).To(MatchError(ContainSubstring("encountered error during reconciliation: " + errDescription)))
+				Expect(defaultDepWaiter.Wait(ctx)).To(MatchError(ContainSubstring("error during reconciliation: " + errDescription)))
 			})
 
 			It("should return error when status does not contain cloud config information", func() {
@@ -401,7 +424,113 @@ var _ = Describe("OperatingSystemConfig", func() {
 				Expect(defaultDepWaiter.Wait(ctx)).To(MatchError(ContainSubstring("no cloud config information provided in status")))
 			})
 
+			It("should return error if we haven't observed the latest timestamp annotation", func() {
+				defer test.WithVars(
+					&TimeNow, mockNow.Do,
+					&DownloaderConfigFn, downloaderConfigFn,
+					&OriginalConfigFn, originalConfigFn,
+				)()
+				mockNow.EXPECT().Do().Return(now.UTC()).AnyTimes()
+
+				By("deploy")
+				// Deploy should fill internal state with the added timestamp annotation
+				Expect(defaultDepWaiter.Deploy(ctx)).To(Succeed())
+
+				By("patch object")
+				for i := range expected {
+					patch := client.MergeFrom(expected[i].DeepCopy())
+					// remove operation annotation, add old timestamp annotation
+					expected[i].ObjectMeta.Annotations = map[string]string{
+						v1beta1constants.GardenerTimestamp: now.Add(-time.Millisecond).UTC().String(),
+					}
+					// set last operation
+					expected[i].Status.LastOperation = &gardencorev1beta1.LastOperation{
+						State: gardencorev1beta1.LastOperationStateSucceeded,
+					}
+					// set cloud-config secret information
+					expected[i].Status.CloudConfig = &extensionsv1alpha1.CloudConfig{
+						SecretRef: corev1.SecretReference{
+							Name:      "cc-" + expected[i].Name,
+							Namespace: expected[i].Name,
+						},
+					}
+					// set other status fields
+					expected[i].Status.Command = pointer.String("foo-" + expected[i].Name)
+					expected[i].Status.Units = []string{"bar-" + expected[i].Name, "baz-" + expected[i].Name}
+					Expect(c.Patch(ctx, expected[i], patch)).ToNot(HaveOccurred(), "patching operatingsystemconfig succeeds")
+
+					// create cloud-config secret
+					ccSecret := &corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "cc-" + expected[i].Name,
+							Namespace: expected[i].Name,
+						},
+						Data: map[string][]byte{
+							"cloud_config": []byte("foobar-" + expected[i].Name),
+						},
+					}
+					Expect(c.Create(ctx, ccSecret)).To(Succeed())
+				}
+
+				By("wait")
+				Expect(defaultDepWaiter.Wait(ctx)).NotTo(Succeed(), "operatingsystemconfig indicates error")
+			})
+
 			It("should return no error when it's ready", func() {
+				defer test.WithVars(
+					&TimeNow, mockNow.Do,
+					&DownloaderConfigFn, downloaderConfigFn,
+					&OriginalConfigFn, originalConfigFn,
+				)()
+				mockNow.EXPECT().Do().Return(now.UTC()).AnyTimes()
+
+				By("deploy")
+				// Deploy should fill internal state with the added timestamp annotation
+				Expect(defaultDepWaiter.Deploy(ctx)).To(Succeed())
+
+				By("patch object")
+				for i := range expected {
+					patch := client.MergeFrom(expected[i].DeepCopy())
+					// remove operation annotation, add up-to-date timestamp annotation
+					expected[i].ObjectMeta.Annotations = map[string]string{
+						v1beta1constants.GardenerTimestamp: now.UTC().String(),
+					}
+					// set last operation
+					expected[i].Status.LastOperation = &gardencorev1beta1.LastOperation{
+						State: gardencorev1beta1.LastOperationStateSucceeded,
+					}
+					// set cloud-config secret information
+					expected[i].Status.CloudConfig = &extensionsv1alpha1.CloudConfig{
+						SecretRef: corev1.SecretReference{
+							Name:      "cc-" + expected[i].Name,
+							Namespace: expected[i].Name,
+						},
+					}
+					// set other status fields
+					expected[i].Status.Command = pointer.String("foo-" + expected[i].Name)
+					expected[i].Status.Units = []string{"bar-" + expected[i].Name, "baz-" + expected[i].Name}
+					Expect(c.Patch(ctx, expected[i], patch)).ToNot(HaveOccurred(), "patching operatingsystemconfig succeeds")
+
+					// create cloud-config secret
+					ccSecret := &corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "cc-" + expected[i].Name,
+							Namespace: expected[i].Name,
+						},
+						Data: map[string][]byte{
+							"cloud_config": []byte("foobar-" + expected[i].Name),
+						},
+					}
+					Expect(c.Create(ctx, ccSecret)).To(Succeed())
+				}
+
+				By("wait")
+				Expect(defaultDepWaiter.Wait(ctx)).To(Succeed(), "operatingsystemconfig is ready")
+			})
+		})
+
+		Describe("WorkerNameToOperatingSystemConfigsMap", func() {
+			It("should return the correct result from the Wait operation", func() {
 				for i := range expected {
 					// remove operation annotation
 					expected[i].ObjectMeta.Annotations = map[string]string{}
@@ -417,7 +546,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 						},
 					}
 					// set other status fields
-					expected[i].Status.Command = pointer.StringPtr("foo-" + expected[i].Name)
+					expected[i].Status.Command = pointer.String("foo-" + expected[i].Name)
 					expected[i].Status.Units = []string{"bar-" + expected[i].Name, "baz-" + expected[i].Name}
 					Expect(c.Create(ctx, expected[i])).To(Succeed())
 
@@ -439,7 +568,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 					worker1Name: {
 						Downloader: Data{
 							Content: "foobar-cloud-config-" + worker1Name + "-77ac3-downloader",
-							Command: pointer.StringPtr("foo-cloud-config-" + worker1Name + "-77ac3-downloader"),
+							Command: pointer.String("foo-cloud-config-" + worker1Name + "-77ac3-downloader"),
 							Units: []string{
 								"bar-cloud-config-" + worker1Name + "-77ac3-downloader",
 								"baz-cloud-config-" + worker1Name + "-77ac3-downloader",
@@ -447,7 +576,7 @@ var _ = Describe("OperatingSystemConfig", func() {
 						},
 						Original: Data{
 							Content: "foobar-cloud-config-" + worker1Name + "-77ac3-original",
-							Command: pointer.StringPtr("foo-cloud-config-" + worker1Name + "-77ac3-original"),
+							Command: pointer.String("foo-cloud-config-" + worker1Name + "-77ac3-original"),
 							Units: []string{
 								"bar-cloud-config-" + worker1Name + "-77ac3-original",
 								"baz-cloud-config-" + worker1Name + "-77ac3-original",
@@ -456,19 +585,20 @@ var _ = Describe("OperatingSystemConfig", func() {
 					},
 					worker2Name: {
 						Downloader: Data{
-							Content: "foobar-cloud-config-" + worker2Name + "-77ac3-downloader",
-							Command: pointer.StringPtr("foo-cloud-config-" + worker2Name + "-77ac3-downloader"),
+							Content: "foobar-cloud-config-" + worker2Name + "-cf2c8-downloader",
+							Command: pointer.String("foo-cloud-config-" + worker2Name + "-cf2c8-downloader"),
+
 							Units: []string{
-								"bar-cloud-config-" + worker2Name + "-77ac3-downloader",
-								"baz-cloud-config-" + worker2Name + "-77ac3-downloader",
+								"bar-cloud-config-" + worker2Name + "-cf2c8-downloader",
+								"baz-cloud-config-" + worker2Name + "-cf2c8-downloader",
 							},
 						},
 						Original: Data{
-							Content: "foobar-cloud-config-" + worker2Name + "-77ac3-original",
-							Command: pointer.StringPtr("foo-cloud-config-" + worker2Name + "-77ac3-original"),
+							Content: "foobar-cloud-config-" + worker2Name + "-cf2c8-original",
+							Command: pointer.String("foo-cloud-config-" + worker2Name + "-cf2c8-original"),
 							Units: []string{
-								"bar-cloud-config-" + worker2Name + "-77ac3-original",
-								"baz-cloud-config-" + worker2Name + "-77ac3-original",
+								"bar-cloud-config-" + worker2Name + "-cf2c8-original",
+								"baz-cloud-config-" + worker2Name + "-cf2c8-original",
 							},
 						},
 					},
@@ -630,11 +760,19 @@ var _ = Describe("OperatingSystemConfig", func() {
 		var workerName = "foo"
 
 		It("should return an empty string", func() {
-			Expect(Key(workerName, nil)).To(BeEmpty())
+			Expect(Key(workerName, nil, nil)).To(BeEmpty())
 		})
 
-		It("should return the expected key", func() {
-			Expect(Key(workerName, semver.MustParse("1.2.3"))).To(Equal("cloud-config-" + workerName + "-77ac3"))
+		It("is different for different worker.cri configurations", func() {
+			containerDKey := Key(workerName, semver.MustParse("1.2.3"), &gardencorev1beta1.CRI{Name: gardencorev1beta1.CRINameContainerD})
+			dockerKey := Key(workerName, semver.MustParse("1.2.3"), &gardencorev1beta1.CRI{Name: gardencorev1beta1.CRINameDocker})
+			Expect(containerDKey).NotTo(Equal(dockerKey))
+		})
+
+		It("is the same for `cri=nil` and `cri.name=docker`", func() {
+			dockerKey := Key(workerName, semver.MustParse("1.2.3"), &gardencorev1beta1.CRI{Name: gardencorev1beta1.CRINameDocker})
+			nilKey := Key(workerName, semver.MustParse("1.2.3"), nil)
+			Expect(dockerKey).To(Equal(nilKey))
 		})
 	})
 })

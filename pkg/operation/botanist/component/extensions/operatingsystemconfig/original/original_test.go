@@ -47,13 +47,13 @@ var _ = Describe("Original", func() {
 
 	Describe("#Config", func() {
 		var (
-			caBundle                = pointer.StringPtr("cabundle")
+			caBundle                = pointer.String("cabundle")
 			criName                 = extensionsv1alpha1.CRIName("foo")
 			images                  = map[string]*imagevector.Image{}
 			kubeletCACertificate    = "kubelet-ca-certificate"
 			kubeletCLIFlags         = components.ConfigurableKubeletCLIFlags{}
 			kubeletConfigParameters = components.ConfigurableKubeletConfigParameters{}
-			kubeletDataVolumeName   = pointer.StringPtr("datavolname")
+			kubeletDataVolumeName   = pointer.String("datavolname")
 			kubernetesVersion       = semver.MustParse("1.2.3")
 			sshPublicKey            = "ssh-public-key"
 
@@ -113,6 +113,7 @@ var _ = Describe("Original", func() {
 			}
 
 			Expect(order).To(Equal([]string{
+				"promtail",
 				"var-lib-mount",
 				"root-certificates",
 				"docker",
@@ -130,6 +131,7 @@ var _ = Describe("Original", func() {
 			}
 
 			Expect(order).To(Equal([]string{
+				"promtail",
 				"var-lib-mount",
 				"root-certificates",
 				"containerd",

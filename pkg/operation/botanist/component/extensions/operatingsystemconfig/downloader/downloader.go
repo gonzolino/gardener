@@ -94,6 +94,11 @@ const (
 	// PathCredentialsClientKey is a constant for a path containing the 'client private key' credentials part for the
 	// download.
 	PathCredentialsClientKey = PathCredentialsDirectory + "/client.key"
+	// PathBootstrapToken is the path of a file on the shoot worker nodes in which the the bootstrap token for the kubelet
+	// bootstrap is stored.
+	PathBootstrapToken = PathCredentialsDirectory + "/bootstrap-token"
+	// BootstrapTokenPlaceholder is the token that is expected to be replaced by the worker controller with the actual token
+	BootstrapTokenPlaceholder = "<<BOOTSTRAP_TOKEN>>"
 	// PathDownloadedCloudConfig is the path on the shoot worker nodes at which the downloaded cloud-config user-data
 	// will be stored.
 	PathDownloadedCloudConfig = PathDownloadsDirectory + "/cloud_config"
@@ -127,9 +132,9 @@ func Config(cloudConfigUserDataSecretName, apiServerURL string) ([]extensionsv1a
 	units := []extensionsv1alpha1.Unit{
 		{
 			Name:    Name + ".service",
-			Command: pointer.StringPtr("start"),
-			Enable:  pointer.BoolPtr(true),
-			Content: pointer.StringPtr(`[Unit]
+			Command: pointer.String("start"),
+			Enable:  pointer.Bool(true),
+			Content: pointer.String(`[Unit]
 Description=Downloads the actual cloud config from the Shoot API server and executes it
 After=` + docker.UnitName + ` docker.socket
 Wants=docker.socket
@@ -147,7 +152,7 @@ WantedBy=multi-user.target`),
 	files := []extensionsv1alpha1.File{
 		{
 			Path:        PathCredentialsServer,
-			Permissions: pointer.Int32Ptr(0644),
+			Permissions: pointer.Int32(0644),
 			Content: extensionsv1alpha1.FileContent{
 				Inline: &extensionsv1alpha1.FileContentInline{
 					Encoding: "b64",
@@ -157,7 +162,7 @@ WantedBy=multi-user.target`),
 		},
 		{
 			Path:        PathCredentialsCACert,
-			Permissions: pointer.Int32Ptr(0644),
+			Permissions: pointer.Int32(0644),
 			Content: extensionsv1alpha1.FileContent{
 				SecretRef: &extensionsv1alpha1.FileContentSecretRef{
 					Name:    SecretName,
@@ -167,7 +172,7 @@ WantedBy=multi-user.target`),
 		},
 		{
 			Path:        PathCredentialsClientCert,
-			Permissions: pointer.Int32Ptr(0644),
+			Permissions: pointer.Int32(0644),
 			Content: extensionsv1alpha1.FileContent{
 				SecretRef: &extensionsv1alpha1.FileContentSecretRef{
 					Name:    SecretName,
@@ -177,7 +182,7 @@ WantedBy=multi-user.target`),
 		},
 		{
 			Path:        PathCredentialsClientKey,
-			Permissions: pointer.Int32Ptr(0644),
+			Permissions: pointer.Int32(0644),
 			Content: extensionsv1alpha1.FileContent{
 				SecretRef: &extensionsv1alpha1.FileContentSecretRef{
 					Name:    SecretName,
@@ -187,12 +192,22 @@ WantedBy=multi-user.target`),
 		},
 		{
 			Path:        PathCCDScript,
-			Permissions: pointer.Int32Ptr(0744),
+			Permissions: pointer.Int32(0744),
 			Content: extensionsv1alpha1.FileContent{
 				Inline: &extensionsv1alpha1.FileContentInline{
 					Encoding: "b64",
 					Data:     utils.EncodeBase64(ccdScript.Bytes()),
 				},
+			},
+		},
+		{
+			Path:        PathBootstrapToken,
+			Permissions: pointer.Int32(0644),
+			Content: extensionsv1alpha1.FileContent{
+				Inline: &extensionsv1alpha1.FileContentInline{
+					Data: BootstrapTokenPlaceholder,
+				},
+				TransmitUnencoded: pointer.Bool(true),
 			},
 		},
 	}

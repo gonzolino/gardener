@@ -47,7 +47,7 @@ var _ = Describe("ClusterAutoscaler", func() {
 	var (
 		ctrl              *gomock.Controller
 		c                 *mockclient.MockClient
-		clusterAutoscaler ClusterAutoscaler
+		clusterAutoscaler Interface
 
 		ctx                = context.TODO()
 		fakeErr            = fmt.Errorf("fake error")
@@ -71,7 +71,7 @@ var _ = Describe("ClusterAutoscaler", func() {
 		configScaleDownDelayAfterDelete     = &metav1.Duration{Duration: time.Second}
 		configScaleDownDelayAfterFailure    = &metav1.Duration{Duration: time.Second}
 		configScaleDownUnneededTime         = &metav1.Duration{Duration: time.Second}
-		configScaleDownUtilizationThreshold = pointer.Float64Ptr(1.2345)
+		configScaleDownUtilizationThreshold = pointer.Float64(1.2345)
 		configScanInterval                  = &metav1.Duration{Duration: time.Second}
 		configFull                          = &gardencorev1beta1.ClusterAutoscaler{
 			ScaleDownDelayAfterAdd:        configScaleDownDelayAfterAdd,
@@ -127,8 +127,8 @@ var _ = Describe("ClusterAutoscaler", func() {
 					Kind:               "Namespace",
 					Name:               namespace,
 					UID:                namespaceUID,
-					Controller:         pointer.BoolPtr(true),
-					BlockOwnerDeletion: pointer.BoolPtr(true),
+					Controller:         pointer.Bool(true),
+					BlockOwnerDeletion: pointer.Bool(true),
 				}},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -221,7 +221,7 @@ var _ = Describe("ClusterAutoscaler", func() {
 				},
 				Spec: appsv1.DeploymentSpec{
 					Replicas:             &replicas,
-					RevisionHistoryLimit: pointer.Int32Ptr(1),
+					RevisionHistoryLimit: pointer.Int32(1),
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"app":  "kubernetes",
@@ -246,7 +246,7 @@ var _ = Describe("ClusterAutoscaler", func() {
 						},
 						Spec: corev1.PodSpec{
 							ServiceAccountName:            serviceAccountName,
-							TerminationGracePeriodSeconds: pointer.Int64Ptr(5),
+							TerminationGracePeriodSeconds: pointer.Int64(5),
 							Containers: []corev1.Container{
 								{
 									Name:            "cluster-autoscaler",
@@ -469,7 +469,7 @@ subjects:
 					{Name: managedResourceSecretName},
 				},
 				InjectLabels: map[string]string{"shoot.gardener.cloud/no-cleanup": "true"},
-				KeepObjects:  pointer.BoolPtr(false),
+				KeepObjects:  pointer.Bool(false),
 			},
 		}
 	)
@@ -511,7 +511,7 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(clusterAutoscaler.Deploy(ctx)).To(MatchError(fakeErr))
@@ -521,9 +521,9 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(clusterAutoscaler.Deploy(ctx)).To(MatchError(fakeErr))
@@ -533,11 +533,11 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, deploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(clusterAutoscaler.Deploy(ctx)).To(MatchError(fakeErr))
@@ -547,13 +547,13 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, deploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Return(fakeErr),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).Return(fakeErr),
 				)
 
 				Expect(clusterAutoscaler.Deploy(ctx)).To(MatchError(fakeErr))
@@ -563,13 +563,13 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, deploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, managedResourceSecretName), gomock.AssignableToTypeOf(&corev1.Secret{})),
 					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Return(fakeErr),
 				)
@@ -581,13 +581,13 @@ subjects:
 				gomock.InOrder(
 					c.EXPECT().Create(ctx, serviceAccount),
 					c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, deploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
+					c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, managedResourceSecretName), gomock.AssignableToTypeOf(&corev1.Secret{})),
 					c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})),
 					c.EXPECT().Get(ctx, kutil.Key(namespace, managedResourceName), gomock.AssignableToTypeOf(&resourcesv1alpha1.ManagedResource{})),
@@ -612,29 +612,35 @@ subjects:
 					gomock.InOrder(
 						c.EXPECT().Create(ctx, serviceAccount),
 						c.EXPECT().Get(ctx, kutil.Key(clusterRoleBindingName), gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(clusterRoleBinding))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&rbacv1.ClusterRoleBinding{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(clusterRoleBinding))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, serviceName), gomock.AssignableToTypeOf(&corev1.Service{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Service{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(service))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&corev1.Service{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(service))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, deploymentName), gomock.AssignableToTypeOf(&appsv1.Deployment{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(deploymentFor(withConfig)))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&appsv1.Deployment{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(deploymentFor(withConfig)))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, vpaName), gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(vpa))
-						}),
+						c.EXPECT().Patch(ctx, gomock.AssignableToTypeOf(&autoscalingv1beta2.VerticalPodAutoscaler{}), gomock.Any()).
+							Do(func(ctx context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) {
+								Expect(obj).To(DeepEqual(vpa))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, managedResourceSecretName), gomock.AssignableToTypeOf(&corev1.Secret{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(managedResourceSecret))
-						}),
+						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&corev1.Secret{})).
+							Do(func(ctx context.Context, obj client.Object, _ ...client.UpdateOption) {
+								Expect(obj).To(DeepEqual(managedResourceSecret))
+							}),
 						c.EXPECT().Get(ctx, kutil.Key(namespace, managedResourceName), gomock.AssignableToTypeOf(&resourcesv1alpha1.ManagedResource{})),
-						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&resourcesv1alpha1.ManagedResource{})).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) {
-							Expect(obj).To(DeepEqual(managedResource))
-						}),
+						c.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&resourcesv1alpha1.ManagedResource{})).
+							Do(func(ctx context.Context, obj client.Object, _ ...client.UpdateOption) {
+								Expect(obj).To(DeepEqual(managedResource))
+							}),
 					)
 
 					Expect(clusterAutoscaler.Deploy(ctx)).To(Succeed())

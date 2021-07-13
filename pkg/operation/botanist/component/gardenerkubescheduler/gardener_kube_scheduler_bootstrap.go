@@ -46,10 +46,6 @@ func Bootstrap(
 	component.DeployWaiter,
 	error,
 ) {
-	if c == nil {
-		return nil, errors.New("client is required")
-	}
-
 	if len(seedAdmissionControllerNamespace) == 0 {
 		return nil, errors.New("seedAdmissionControllerNamespace is required")
 	}
@@ -68,7 +64,7 @@ func Bootstrap(
 	case versionConstraintEqual118.Check(seedVersion):
 		config, err = schedulerconfigv18.NewConfigurator(Name, Name, &schedulerconfigv18v1alpha2.KubeSchedulerConfiguration{
 			Profiles: []schedulerconfigv18v1alpha2.KubeSchedulerProfile{{
-				SchedulerName: pointer.StringPtr(podschedulername.GardenerShootControlPlaneSchedulerName),
+				SchedulerName: pointer.String(podschedulername.GardenerShootControlPlaneSchedulerName),
 				Plugins: &schedulerconfigv18v1alpha2.Plugins{
 					Score: &schedulerconfigv18v1alpha2.PluginSet{
 						Disabled: []schedulerconfigv18v1alpha2.Plugin{
@@ -85,7 +81,7 @@ func Bootstrap(
 	case versionConstraintEqual119.Check(seedVersion):
 		config, err = schedulerconfigv19.NewConfigurator(Name, Name, &schedulerconfigv19v1beta1.KubeSchedulerConfiguration{
 			Profiles: []schedulerconfigv19v1beta1.KubeSchedulerProfile{{
-				SchedulerName: pointer.StringPtr(podschedulername.GardenerShootControlPlaneSchedulerName),
+				SchedulerName: pointer.String(podschedulername.GardenerShootControlPlaneSchedulerName),
 				Plugins: &schedulerconfigv19v1beta1.Plugins{
 					Score: &schedulerconfigv19v1beta1.PluginSet{
 						Disabled: []schedulerconfigv19v1beta1.Plugin{
@@ -102,7 +98,7 @@ func Bootstrap(
 	case versionConstraintEqual120.Check(seedVersion):
 		config, err = schedulerconfigv20.NewConfigurator(Name, Name, &schedulerconfigv20v1beta1.KubeSchedulerConfiguration{
 			Profiles: []schedulerconfigv20v1beta1.KubeSchedulerProfile{{
-				SchedulerName: pointer.StringPtr(podschedulername.GardenerShootControlPlaneSchedulerName),
+				SchedulerName: pointer.String(podschedulername.GardenerShootControlPlaneSchedulerName),
 				Plugins: &schedulerconfigv20v1beta1.Plugins{
 					Score: &schedulerconfigv20v1beta1.PluginSet{
 						Disabled: []schedulerconfigv20v1beta1.Plugin{
@@ -133,7 +129,7 @@ func Bootstrap(
 			Service: &admissionregistrationv1beta1.ServiceReference{
 				Name:      seedadmissioncontroller.Name,
 				Namespace: seedAdmissionControllerNamespace,
-				Path:      pointer.StringPtr(podschedulername.WebhookPath),
+				Path:      pointer.String(podschedulername.WebhookPath),
 			},
 			CABundle: []byte(seedadmissioncontroller.TLSCACert),
 		},

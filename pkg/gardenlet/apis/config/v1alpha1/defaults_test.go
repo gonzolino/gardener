@@ -15,7 +15,10 @@
 package v1alpha1_test
 
 import (
+	"fmt"
 	"time"
+
+	. "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -24,8 +27,6 @@ import (
 	componentbaseconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/klog"
 	"k8s.io/utils/pointer"
-
-	. "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
 )
 
 var _ = Describe("Defaults", func() {
@@ -44,6 +45,7 @@ var _ = Describe("Defaults", func() {
 			Expect(obj.ShootClientConnection).NotTo(BeNil())
 			Expect(obj.Controllers.BackupBucket).NotTo(BeNil())
 			Expect(obj.Controllers.BackupEntry).NotTo(BeNil())
+			Expect(obj.Controllers.Bastion).NotTo(BeNil())
 			Expect(obj.Controllers.ControllerInstallation).NotTo(BeNil())
 			Expect(obj.Controllers.ControllerInstallationCare).NotTo(BeNil())
 			Expect(obj.Controllers.ControllerInstallationRequired).NotTo(BeNil())
@@ -59,9 +61,40 @@ var _ = Describe("Defaults", func() {
 			Expect(obj.Server.HTTPS.Port).To(Equal(2720))
 			Expect(obj.SNI).ToNot(BeNil())
 			Expect(obj.SNI.Ingress).ToNot(BeNil())
-			Expect(obj.SNI.Ingress.Labels).To(Equal(map[string]string{"istio": "ingressgateway"}))
 			Expect(obj.SNI.Ingress.Namespace).To(PointTo(Equal("istio-ingress")))
 			Expect(obj.SNI.Ingress.ServiceName).To(PointTo(Equal("istio-ingressgateway")))
+			Expect(obj.SNI.Ingress.Labels).To(Equal(map[string]string{
+				"app":   "istio-ingressgateway",
+				"istio": "ingressgateway",
+			}))
+		})
+
+		It("should default the gardenlets exposure class handlers sni config", func() {
+			obj.ExposureClassHandlers = []ExposureClassHandler{
+				{Name: "test1"},
+				{Name: "test2", SNI: &SNI{}},
+			}
+
+			SetObjectDefaults_GardenletConfiguration(obj)
+
+			Expect(obj.ExposureClassHandlers[0].SNI).ToNot(BeNil())
+			Expect(obj.ExposureClassHandlers[0].SNI.Ingress).ToNot(BeNil())
+			Expect(obj.ExposureClassHandlers[0].SNI.Ingress.Namespace).ToNot(BeNil())
+			Expect(*obj.ExposureClassHandlers[0].SNI.Ingress.Namespace).To(Equal(fmt.Sprintf("istio-ingress-handler-%s", obj.ExposureClassHandlers[0].Name)))
+			Expect(*obj.ExposureClassHandlers[0].SNI.Ingress.ServiceName).To(Equal("istio-ingressgateway"))
+			Expect(obj.ExposureClassHandlers[0].SNI.Ingress.Labels).To(Equal(map[string]string{
+				"app":                 "istio-ingressgateway",
+				"gardener.cloud/role": "exposureclass-handler",
+			}))
+
+			Expect(obj.ExposureClassHandlers[1].SNI.Ingress).ToNot(BeNil())
+			Expect(obj.ExposureClassHandlers[1].SNI.Ingress.Namespace).ToNot(BeNil())
+			Expect(*obj.ExposureClassHandlers[1].SNI.Ingress.Namespace).To(Equal(fmt.Sprintf("istio-ingress-handler-%s", obj.ExposureClassHandlers[1].Name)))
+			Expect(*obj.ExposureClassHandlers[1].SNI.Ingress.ServiceName).To(Equal("istio-ingressgateway"))
+			Expect(obj.ExposureClassHandlers[1].SNI.Ingress.Labels).To(Equal(map[string]string{
+				"app":                 "istio-ingressgateway",
+				"gardener.cloud/role": "exposureclass-handler",
+			}))
 		})
 
 		Describe("ClientConnection settings", func() {
@@ -117,14 +150,14 @@ var _ = Describe("Defaults", func() {
 			It("should not overwrite custom settings", func() {
 				expectedLeaderElection := &LeaderElectionConfiguration{
 					LeaderElectionConfiguration: componentbaseconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   pointer.BoolPtr(true),
+						LeaderElect:   pointer.Bool(true),
 						ResourceLock:  "foo",
 						RetryPeriod:   metav1.Duration{Duration: 40 * time.Second},
 						RenewDeadline: metav1.Duration{Duration: 41 * time.Second},
 						LeaseDuration: metav1.Duration{Duration: 42 * time.Second},
 					},
-					LockObjectName:      pointer.StringPtr("lock-object"),
-					LockObjectNamespace: pointer.StringPtr("other-garden-ns"),
+					LockObjectName:      pointer.String("lock-object"),
+					LockObjectNamespace: pointer.String("other-garden-ns"),
 				}
 				obj.LeaderElection = expectedLeaderElection.DeepCopy()
 				SetObjectDefaults_GardenletConfiguration(obj)
@@ -183,6 +216,20 @@ var _ = Describe("Defaults", func() {
 			Expect(obj.ConcurrentSyncs).To(PointTo(Equal(20)))
 			Expect(obj.DeletionGracePeriodHours).To(PointTo(Equal(0)))
 			Expect(obj.DeletionGracePeriodShootPurposes).To(BeEmpty())
+		})
+	})
+
+	Describe("#SetDefaults_BastionControllerConfiguration", func() {
+		var obj *BastionControllerConfiguration
+
+		BeforeEach(func() {
+			obj = &BastionControllerConfiguration{}
+		})
+
+		It("should default the configuration", func() {
+			SetDefaults_BastionControllerConfiguration(obj)
+
+			Expect(obj.ConcurrentSyncs).To(PointTo(Equal(20)))
 		})
 	})
 })

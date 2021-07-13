@@ -47,7 +47,7 @@ func init() {
 }
 
 // DefaultVPNSeedServer returns a deployer for the vpn-seed-server.
-func (b *Botanist) DefaultVPNSeedServer() (vpnseedserver.VPNSeedServer, error) {
+func (b *Botanist) DefaultVPNSeedServer() (vpnseedserver.Interface, error) {
 	imageAPIServerProxy, err := b.ImageVector.FindImage(charts.ImageNameApiserverProxy, imagevector.RuntimeVersion(b.SeedVersion()), imagevector.TargetVersion(b.ShootVersion()))
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (b *Botanist) DefaultVPNSeedServer() (vpnseedserver.VPNSeedServer, error) {
 
 	var kubeAPIServerHost *string
 	if b.APIServerSNIEnabled() {
-		kubeAPIServerHost = pointer.StringPtr(b.outOfClusterAPIServerFQDN())
+		kubeAPIServerHost = pointer.String(b.outOfClusterAPIServerFQDN())
 	}
 
 	return vpnseedserver.New(
@@ -73,6 +73,10 @@ func (b *Botanist) DefaultVPNSeedServer() (vpnseedserver.VPNSeedServer, error) {
 		b.Shoot.Networks.Pods.String(),
 		b.Shoot.GetNodeNetwork(),
 		b.Shoot.GetReplicas(1),
+		vpnseedserver.IstioIngressGateway{
+			Namespace: *b.Config.SNI.Ingress.Namespace,
+			Labels:    b.Config.SNI.Ingress.Labels,
+		},
 	), nil
 }
 
@@ -94,6 +98,13 @@ func (b *Botanist) DeployVPNServer(ctx context.Context) error {
 		Server:           component.Secret{Name: vpnseedserver.DeploymentName, Checksum: b.CheckSums[vpnseedserver.DeploymentName], Data: b.Secrets[vpnseedserver.DeploymentName].Data},
 		DiffieHellmanKey: component.Secret{Name: v1beta1constants.GardenRoleOpenVPNDiffieHellman, Checksum: checkSumDH, Data: openvpnDiffieHellmanSecret},
 	})
+
+	b.Shoot.Components.ControlPlane.VPNSeedServer.SetSeedNamespaceObjectUID(b.SeedNamespaceObject.UID)
+	b.Shoot.Components.ControlPlane.VPNSeedServer.SetSNIConfig(b.Config.SNI)
+	if b.ExposureClassHandler != nil {
+		b.Shoot.Components.ControlPlane.VPNSeedServer.SetExposureClassHandlerName(b.ExposureClassHandler.Name)
+		b.Shoot.Components.ControlPlane.VPNSeedServer.SetSNIConfig(b.ExposureClassHandler.SNI)
+	}
 
 	return b.Shoot.Components.ControlPlane.VPNSeedServer.Deploy(ctx)
 }

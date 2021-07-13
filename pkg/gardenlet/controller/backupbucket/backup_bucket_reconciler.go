@@ -49,7 +49,7 @@ type reconciler struct {
 	config    *config.GardenletConfiguration
 }
 
-// newReconciler returns the new backupBucker reconciler.
+// newReconciler returns the new backupBucket reconciler.
 func newReconciler(clientMap clientmap.ClientMap, recorder record.EventRecorder, config *config.GardenletConfiguration) reconcile.Reconciler {
 	return &reconciler{
 		clientMap: clientMap,
@@ -157,7 +157,7 @@ func (r *reconciler) deleteBackupBucket(ctx context.Context, gardenClient kubern
 	}
 
 	backupEntryList := &gardencorev1beta1.BackupEntryList{}
-	if err := gardenClient.APIReader().List(ctx, backupEntryList); err != nil {
+	if err := gardenClient.Client().List(ctx, backupEntryList); err != nil {
 		backupBucketLogger.Errorf("Could not list the backup entries associated with backupbucket: %s", err)
 		return reconcile.Result{}, err
 	}

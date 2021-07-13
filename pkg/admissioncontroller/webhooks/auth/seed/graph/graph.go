@@ -20,18 +20,16 @@ import (
 	"sync"
 	"time"
 
-	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	gardenoperationsv1alpha1 "github.com/gardener/gardener/pkg/apis/operations/v1alpha1"
 	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/go-logr/logr"
 	gonumgraph "gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/simple"
 	"gonum.org/v1/gonum/graph/traverse"
 	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
-	coordinationv1 "k8s.io/api/coordination/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -47,6 +45,7 @@ type Interface interface {
 type graph struct {
 	lock     sync.RWMutex
 	logger   logr.Logger
+	client   client.Client
 	graph    *simple.DirectedGraph
 	vertices typeVertexMapping
 }
@@ -54,40 +53,37 @@ type graph struct {
 var _ Interface = &graph{}
 
 // New creates a new graph interface for tracking resource dependencies.
-func New(logger logr.Logger) *graph {
+func New(logger logr.Logger, client client.Client) *graph {
 	return &graph{
 		logger:   logger,
+		client:   client,
 		graph:    simple.NewDirectedGraph(),
 		vertices: make(typeVertexMapping),
 	}
 }
 
 func (g *graph) Setup(ctx context.Context, c cache.Cache) error {
-	shootStates := &metav1.PartialObjectMetadata{}
-	shootStates.SetGroupVersionKind(gardencorev1alpha1.SchemeGroupVersion.WithKind("ShootState"))
-
 	for _, resource := range []struct {
 		obj     client.Object
-		setupFn func(informer cache.Informer)
+		setupFn func(context.Context, cache.Informer)
 	}{
 		{&gardencorev1beta1.BackupBucket{}, g.setupBackupBucketWatch},
 		{&gardencorev1beta1.BackupEntry{}, g.setupBackupEntryWatch},
 		{&gardenoperationsv1alpha1.Bastion{}, g.setupBastionWatch},
 		{&certificatesv1beta1.CertificateSigningRequest{}, g.setupCertificateSigningRequestWatch},
 		{&gardencorev1beta1.ControllerInstallation{}, g.setupControllerInstallationWatch},
-		{&coordinationv1.Lease{}, g.setupLeaseWatch},
 		{&seedmanagementv1alpha1.ManagedSeed{}, g.setupManagedSeedWatch},
 		{&gardencorev1beta1.Project{}, g.setupProjectWatch},
 		{&gardencorev1beta1.SecretBinding{}, g.setupSecretBindingWatch},
 		{&gardencorev1beta1.Seed{}, g.setupSeedWatch},
+		{&corev1.ServiceAccount{}, g.setupServiceAccountWatch},
 		{&gardencorev1beta1.Shoot{}, g.setupShootWatch},
-		{shootStates, g.setupShootStateWatch},
 	} {
 		informer, err := c.GetInformer(ctx, resource.obj)
 		if err != nil {
 			return err
 		}
-		resource.setupFn(informer)
+		resource.setupFn(ctx, informer)
 	}
 
 	return nil

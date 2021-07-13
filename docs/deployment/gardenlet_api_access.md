@@ -28,28 +28,32 @@ In this case, the consultation of the `SeedRestriction` admission plugin is perf
 
 Today, the following rules are implemented:
 
-| Resource                    | Verbs                                                         | Path                                                            | Description |
-| --------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------| ----------- |
-| `BackupBucket`              | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` | `BackupBucket` -> `Seed`                                        | Allow `get`, `list`, `watch` requests for all `BackupBucket`s. Allow only `create`, `update`, `patch`, `delete` requests for `BackupBucket`s assigned to the `gardenlet`'s `Seed`. |
-| `BackupEntry`               | `get`, `list`, `watch`, `create`, `update`, `patch`           | `BackupEntry` -> `Seed`                                         | Allow `get`, `list`, `watch` requests for all `BackupEntry`s. Allow only `create`, `update`, `patch` requests for `BackupEntry`s assigned to the `gardenlet`'s `Seed` and referencing `BackupBucket`s assigned to the `gardenlet`'s `Seed`. |
-| `Bastion`                   | `get`, `list`, `watch`, `create`, `update`, `patch`           | `Bastion` -> `Seed`                                             | Allow `get`, `list`, `watch` requests for all `Bastion`s. Allow only `create`, `update`, `patch` requests for `Bastion`s assigned to the `gardenlet`'s `Seed`. |
-| `CertificateSigningRequest` | `get`, `create`                                               | `CertificateSigningRequest` -> `Seed`                           | Allow only `get`, `create` requests for `CertificateSigningRequest`s related to the `gardenlet`'s `Seed`. |
-| `CloudProfile`              | `get`                                                         | `CloudProfile` -> `Shoot` -> `Seed`                             | Allow only `get` requests for `CloudProfile`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
-| `ConfigMap`                 | `get`                                                         | `ConfigMap` -> `Shoot` -> `Seed`                                | Allow only `get` requests for `ConfigMap`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. Allows reading the `kube-system/cluster-identity` `ConfigMap`. |
-| `ControllerRegistration`    | `get`, `list`, `watch`                                        | `ControllerRegistration` -> `ControllerInstallation` -> `Seed`  | Allow `get`, `list`, `watch` requests for all `ControllerRegistration`s. |
-| `ControllerDeployment`      | `get`                                                         | `ControllerDeployment` -> `ControllerInstallation` -> `Seed`    | Allow `get` requests for `ControllerDeployments`s referenced by `ControllerInstallation`s assigned to the `gardenlet`'s `Seed`. |
-| `ControllerInstallation`    | `get`, `list`, `watch`, `update`, `patch`                     | `ControllerInstallation` -> `Seed`                              | Allow `get`, `list`, `watch` requests for all `ControllerInstallation`s. Allow only `update`, `patch` requests for `ControllerInstallation`s assigned to the `gardenlet`'s `Seed`. |
-| `Event`                     | `create`                                                      | none                                                            | Allow to create all kinds of `Event`s. |
-| `Lease`                     | `create`, `get`, `watch`, `update`                            | `Lease` -> `Seed`                                               | Allow `create`, `get`, `update`, and `delete` requests for `Lease`s of the `gardenlet`'s `Seed`. |
-| `ManagedSeed`               | `get`, `list`, `watch`, `update`, `patch`                     | `ManagedSeed` -> `Shoot` -> `Seed`                              | Allow `get`, `list`, `watch` requests for all `ManagedSeed`s. Allow only `update`, `patch` requests for `ManagedSeed`s referencing a `Shoot` assigned to the `gardenlet`'s `Seed`. |
-| `Namespace`                 | `get`                                                         | `Namespace` -> `Shoot` -> `Seed`                                | Allow `get` requests for `Namespace`s of `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
-| `Project`                   | `get`                                                         | `Project` -> `Namespace` -> `Shoot` -> `Seed`                   | Allow `get` requests for `Project`s referenced by the `Namespace` of `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
-| `SecretBinding`             | `get`                                                         | `SecretBinding` -> `Shoot` -> `Seed`                            | Allow only `get` requests for `SecretBinding`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
-| `Seed`                      | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` | `Seed`                                                          | Allow `get`, `list`, `watch` requests for all `Seed`s. Allow only `create`, `update`, `patch`, `delete` requests for the `gardenlet`'s `Seed`s. [1] |
-| `Shoot`                     | `get`, `list`, `watch`, `update`, `patch`                     | `Shoot` -> `Seed`                                               | Allow `get`, `list`, `watch` requests for all `Shoot`s. Allow only `update`, `patch` requests for `Shoot`s assigned to the `gardenlet`'s `Seed`. |
-| `ShootState`                | `get`, `create`, `update`, `patch`                            | `ShootState` -> `Shoot` -> `Seed`                               | Allow only `get`, `create`, `update`, `patch` requests for `ShootState`s belonging by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
+| Resource                    | Verbs                                                           | Path(s)                                                                                                                       | Description |
+| --------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `BackupBucket`              | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`   | `BackupBucket` -> `Seed`                                                                                                      | Allow `get`, `list`, `watch` requests for all `BackupBucket`s. Allow only `create`, `update`, `patch`, `delete` requests for `BackupBucket`s assigned to the `gardenlet`'s `Seed`. |
+| `BackupEntry`               | `get`, `list`, `watch`, `create`, `update`, `patch`             | `BackupEntry` -> `Seed`                                                                                                       | Allow `get`, `list`, `watch` requests for all `BackupEntry`s. Allow only `create`, `update`, `patch` requests for `BackupEntry`s assigned to the `gardenlet`'s `Seed` and referencing `BackupBucket`s assigned to the `gardenlet`'s `Seed`. |
+| `Bastion`                   | `get`, `list`, `watch`, `create`, `update`, `patch`             | `Bastion` -> `Seed`                                                                                                           | Allow `get`, `list`, `watch` requests for all `Bastion`s. Allow only `create`, `update`, `patch` requests for `Bastion`s assigned to the `gardenlet`'s `Seed`. |
+| `CertificateSigningRequest` | `get`, `create`                                                 | `CertificateSigningRequest` -> `Seed`                                                                                         | Allow only `get`, `create` requests for `CertificateSigningRequest`s related to the `gardenlet`'s `Seed`. |
+| `CloudProfile`              | `get`                                                           | `CloudProfile` -> `Shoot` -> `Seed`                                                                                           | Allow only `get` requests for `CloudProfile`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
+| `ClusterRoleBinding`        | `create`, `get`, `update`, `patch`, `delete`                    | `ClusterRoleBinding` -> `ManagedSeed` -> `Shoot` -> `Seed`                                                                    | Allow `create`, `get`, `update`, `patch` requests for `ManagedSeed`s in the bootstrapping phase assigned to the gardenlet's `Seed`s. Allow `delete` requests from gardenlets bootstrapped via `ManagedSeed`s. |
+| `ConfigMap`                 | `get`                                                           | `ConfigMap` -> `Shoot` -> `Seed`                                                                                              | Allow only `get` requests for `ConfigMap`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. Allows reading the `kube-system/cluster-identity` `ConfigMap`. |
+| `ControllerRegistration`    | `get`, `list`, `watch`                                          | `ControllerRegistration` -> `ControllerInstallation` -> `Seed`                                                                | Allow `get`, `list`, `watch` requests for all `ControllerRegistration`s. |
+| `ControllerDeployment`      | `get`                                                           | `ControllerDeployment` -> `ControllerInstallation` -> `Seed`                                                                  | Allow `get` requests for `ControllerDeployments`s referenced by `ControllerInstallation`s assigned to the `gardenlet`'s `Seed`. |
+| `ControllerInstallation`    | `get`, `list`, `watch`, `update`, `patch`                       | `ControllerInstallation` -> `Seed`                                                                                            | Allow `get`, `list`, `watch` requests for all `ControllerInstallation`s. Allow only `update`, `patch` requests for `ControllerInstallation`s assigned to the `gardenlet`'s `Seed`. |
+| `Event`                     | `create`, `patch`                                               | none                                                                                                                          | Allow to `create` or `patch` all kinds of `Event`s. |
+| `ExposureClass`             | `get`                                                           | `ExposureClass` -> `Shoot` -> `Seed`                                                                                          | Allow `get` requests for `ExposureClass`es referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. Deny `get` requests to other `ExposureClass`es. |
+| `Lease`                     | `create`, `get`, `watch`, `update`                              | `Lease` -> `Seed`                                                                                                             | Allow `create`, `get`, `update`, and `delete` requests for `Lease`s of the `gardenlet`'s `Seed`. |
+| `ManagedSeed`               | `get`, `list`, `watch`, `update`, `patch`                       | `ManagedSeed` -> `Shoot` -> `Seed`                                                                                            | Allow `get`, `list`, `watch` requests for all `ManagedSeed`s. Allow only `update`, `patch` requests for `ManagedSeed`s referencing a `Shoot` assigned to the `gardenlet`'s `Seed`. |
+| `Namespace`                 | `get`                                                           | `Namespace` -> `Shoot` -> `Seed`                                                                                              | Allow `get` requests for `Namespace`s of `Shoot`s that are assigned to the `gardenlet`'s `Seed`. Always allow `get` requests for the `garden` `Namespace`. |
+| `Project`                   | `get`                                                           | `Project` -> `Namespace` -> `Shoot` -> `Seed`                                                                                 | Allow `get` requests for `Project`s referenced by the `Namespace` of `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
+| `SecretBinding`             | `get`                                                           | `SecretBinding` -> `Shoot` -> `Seed`                                                                                          | Allow only `get` requests for `SecretBinding`s referenced by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
+| `Secret`                    | `create`, `get`, `update`, `patch`, `delete`(, `list`, `watch`) | `Secret` -> `Seed`, `Secret` -> `Shoot` -> `Seed`, `Secret` -> `SecretBinding` -> `Shoot` -> `Seed`, `BackupBucket` -> `Seed` | Allow `get`, `list`, `watch` requests for all `Secret`s in the `seed-<name>` namespace. Allow only `create`, `get`, `update`, `patch`, `delete` requests for the `Secret`s related to resources assigned to the gardenlet`'s `Seed`s. |
+| `Seed`                      | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`   | `Seed`                                                                                                                        | Allow `get`, `list`, `watch` requests for all `Seed`s. Allow only `create`, `update`, `patch`, `delete` requests for the `gardenlet`'s `Seed`s. [1] |
+| `ServiceAccount`            | `create`, `get`, `update`, `patch`, `delete`                    | `ServiceAccount` -> `ManagedSeed` -> `Shoot` -> `Seed`                                                                        | Allow `create`, `get`, `update`, `patch` requests for `ManagedSeed`s in the bootstrapping phase assigned to the gardenlet's `Seed`s. Allow `delete` requests from gardenlets bootstrapped via `ManagedSeed`s. |
+| `Shoot`                     | `get`, `list`, `watch`, `update`, `patch`                       | `Shoot` -> `Seed`                                                                                                             | Allow `get`, `list`, `watch` requests for all `Shoot`s. Allow only `update`, `patch` requests for `Shoot`s assigned to the `gardenlet`'s `Seed`. |
+| `ShootState`                | `get`, `create`, `update`, `patch`                              | `ShootState` -> `Shoot` -> `Seed`                                                                                             | Allow only `get`, `create`, `update`, `patch` requests for `ShootState`s belonging by `Shoot`s that are assigned to the `gardenlet`'s `Seed`. |
 
-[1] If you use `ManagedSeed` resources then the gardenlet reconciling them ("parent gardenlet") may be allowed to submit certain requests for the `Seed` resources resulting out of such `ManagedSeed` reconciliations (even if the "parent gardenlet" is not responsible for them): 
+[1] If you use `ManagedSeed` resources then the gardenlet reconciling them ("parent gardenlet") may be allowed to submit certain requests for the `Seed` resources resulting out of such `ManagedSeed` reconciliations (even if the "parent gardenlet" is not responsible for them):
 
 - ℹ️ It is allowed to delete the `Seed` resources if the corresponding `ManagedSeed` objects already have a `deletionTimestamp` (this is secure as gardenlets themselves don't have permissions for deleting `ManagedSeed`s).
 - ⚠ It is allowed to create or update `Seed` resources if the corresponding `ManagedSeed` objects use a seed template, i.e., `.spec.seedTemplate != nil`. In this case, there is at least one gardenlet in your system which is responsible for two or more `Seed`s. Please keep in mind that this use case is not recommended for production scenarios (you should only have one dedicated gardenlet per seed cluster), hence, the security improvements discussed in this document might be limited.
@@ -58,7 +62,47 @@ Today, the following rules are implemented:
 
 The `SeedAuthorizer` is implemented as [Kubernetes authorization webhook](https://kubernetes.io/docs/reference/access-authn-authz/webhook/) and part of the [`gardener-admission-controller`](../concepts/admission-controller.md) component running in the garden cluster.
 
-⚠️ This authorization plugin is still in development and should not be used yet.
+🎛 In order to activate it, you have to follow these steps:
+
+1. Set the following flags for the `kube-apiserver` of the garden cluster (i.e., the `kube-apiserver` whose API is extended by Gardener):
+   - `--authorization-mode=RBAC,Node,Webhook` (please note that `Webhook` should appear after `RBAC` in the list [1]; `Node` might not be needed if you use a virtual garden cluster)
+   - `--authorization-webhook-config-file=<path-to-the-webhook-config-file>`
+   - `--authorization-webhook-cache-authorized-ttl=0`
+   - `--authorization-webhook-cache-unauthorized-ttl=0`
+
+2. The webhook config file (stored at `<path-to-the-webhook-config-file>`) should look as follows:
+   ```yaml
+   apiVersion: v1
+   kind: Config
+   clusters:
+   - name: garden
+     cluster:
+       certificate-authority-data: base64(CA-CERT-OF-GARDENER-ADMISSION-CONTROLLER)
+       server: https://gardener-admission-controller.garden/webhooks/auth/seed
+   users:
+   - name: kube-apiserver
+     user: {}
+   contexts:
+   - name: auth-webhook
+     context:
+       cluster: garden
+       user: kube-apiserver
+   current-context: auth-webhook
+   ```
+
+3. When deploying the [Gardener `controlplane` Helm chart](../../charts/gardener/controlplane), set `.global.rbac.seedAuthorizer.enabled=true`. This will prevent that the RBAC resources granting global access for all gardenlets will be deployed.
+
+4. Delete the existing RBAC resources granting global access for all gardenlets by running:
+   ```bash
+   kubectl delete \
+     clusterrole.rbac.authorization.k8s.io/gardener.cloud:system:seeds \
+     clusterrolebinding.rbac.authorization.k8s.io/gardener.cloud:system:seeds \
+     --ignore-not-found
+   ```
+
+Please note that you should activate the [`SeedRestriction`](#seedrestriction-admission-webhook-enablement) admission handler as well.
+
+> [1] The reason for the fact that `Webhook` authorization plugin should appear after `RBAC` is that the `kube-apiserver` will be depending on the `gardener-admission-controller` (serving the webhook). However, the `gardener-admission-controller` can only start when `gardener-apiserver` runs, but `gardener-apiserver` itself can only start when `kube-apiserver` runs. If `Webhook` is before `RBAC` then `gardener-apiserver` might not be able to start, leading to a deadlock.
 
 ### Authorizer Decisions
 
@@ -84,9 +128,13 @@ With the `Seed` name at hand, the authorizer checks for an **existing path** fro
 Internally, the `SeedAuthorizer` uses a directed, acyclic graph data structure in order to efficiently respond to authorization requests for gardenlets:
 
 * A vertex in this graph represents a Kubernetes resource with its kind, namespace, and name (e.g., `Shoot:garden-my-project/my-shoot`).
-* An edge from vertex `u` to vertex `v` in this graph exists when (1) `v` is referred by `u` and `v` is a `Seed`, or when (2) `u` is referred by `v`.
+* An edge from vertex `u` to vertex `v` in this graph exists when
+  * (1) `v` is referred by `u` and `v` is a `Seed`, or when
+  * (2) `u` is referred by `v`, or when
+  * (3) `u` is strictly associated with `v`.
 
 For example, a `Shoot` refers to a `Seed`, a `CloudProfile`, a `SecretBinding`, etc., so it has an outgoing edge to the `Seed` (1) and incoming edges from the `CloudProfile` and `SecretBinding` vertices (2).
+However, there might also be a `ShootState` or a `BackupEntry` resource strictly associated with this `Shoot`, hence, it has incoming edges from these vertices (3).
 
 ![Resource Dependency Graph](gardenlet_api_access_graph.png)
 
@@ -174,4 +222,13 @@ Afterwards, the vertex can either be added again or the updated edges can be cre
 
 The `SeedRestriction` is implemented as [Kubernetes admission webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) and part of the [`gardener-admission-controller`](../concepts/admission-controller.md) component running in the garden cluster.
 
-⚠️ This admission plugin is still in development and should not be used yet.
+🎛 In order to activate it, you have to set `.global.admission.seedRestriction.enabled=true` when using the [Gardener `controlplane` Helm chart](../../charts/gardener/controlplane).
+This will add an additional webhook in the existing `ValidatingWebhookConfiguration` of the `gardener-admission-controller` which contains the configuration for the `SeedRestriction` handler.
+Please note that it should only be activated when the `SeedAuthorizer` is active as well.
+
+### Admission Decisions
+
+The admission's purpose is to perform extended validation on requests which require the body of the object in question.
+Additionally, it handles `CREATE` requests of gardenlets (above discussed resource dependency graph cannot be used in such cases because there won't be any vertex/edge for non-existing resources).
+
+Gardenlets are restricted to only create new resources which are somehow related to the seed clusters they are responsible for.

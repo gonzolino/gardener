@@ -1685,6 +1685,18 @@ SeedSelector
 <p>Tolerations contains the tolerations for taints on seed clusters.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>exposureClassName</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ExposureClassName is the optional name of an exposure class to apply a control plane endpoint exposure strategy.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -2322,7 +2334,7 @@ CRIName
 </em>
 </td>
 <td>
-<p>The name of the CRI library</p>
+<p>The name of the CRI library. Supported values are <code>docker</code> and <code>containerd</code>.</p>
 </td>
 </tr>
 <tr>
@@ -4128,6 +4140,20 @@ KubeAPIServerRequests
 <p>Requests contains configuration for request-specific settings for the kube-apiserver.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>enableAnonymousAuthentication</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>EnableAnonymousAuthentication defines whether anonymous requests to the secure port
+of the API server should be allowed (flag <code>--anonymous-auth</code>).
+See: <a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/">https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/</a></p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.KubeAPIServerRequests">KubeAPIServerRequests
@@ -4308,6 +4334,20 @@ ProxyMode
 <em>(Optional)</em>
 <p>Mode specifies which proxy mode to use.
 defaults to IPTables.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>enabled</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Enabled indicates whether kube-proxy should be deployed or not.
+Depending on the networking extensions switching kube-proxy off might be rejected. Consulting the respective documentation of the used networking extension is recommended before using this field.
+defaults to true if not specified.</p>
 </td>
 </tr>
 </tbody>
@@ -4602,6 +4642,32 @@ KubeletConfigReserved
 <em>(Optional)</em>
 <p>SystemReserved is the configuration for resources reserved for system processes not managed by kubernetes (e.g. journald).
 When updating these values, be aware that cgroup resizes may not succeed on active worker nodes. Look for the NodeAllocatableEnforced event to determine if the configuration was applied.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>imageGCHighThresholdPercent</code></br>
+<em>
+int32
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ImageGCHighThresholdPercent describes the percent of the disk usage which triggers image garbage collection.
+Default: 50</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>imageGCLowThresholdPercent</code></br>
+<em>
+int32
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ImageGCLowThresholdPercent describes the percent of the disk to which garbage collection attempts to free.
+Default: 40</p>
 </td>
 </tr>
 </tbody>
@@ -8648,6 +8714,18 @@ SeedSelector
 <p>Tolerations contains the tolerations for taints on seed clusters.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>exposureClassName</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ExposureClassName is the optional name of an exposure class to apply a control plane endpoint exposure strategy.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.ShootStatus">ShootStatus
@@ -9112,6 +9190,18 @@ SeedSelector
 <p>Tolerations contains the tolerations for taints on seed clusters.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>exposureClassName</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ExposureClassName is the optional name of an exposure class to apply a control plane endpoint exposure strategy.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -9527,7 +9617,8 @@ CRI
 </td>
 <td>
 <em>(Optional)</em>
-<p>CRI contains configurations of CRI support of every machine in the worker pool</p>
+<p>CRI contains configurations of CRI support of every machine in the worker pool.
+Defaults to a CRI with name <code>containerd</code> when the Kubernetes version of the <code>Shoot</code> is &gt;= 1.22.</p>
 </td>
 </tr>
 <tr>

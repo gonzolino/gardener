@@ -26,7 +26,7 @@ import (
 )
 
 // DefaultMetricsServer returns a deployer for the metrics-server.
-func (b *Botanist) DefaultMetricsServer() (metricsserver.MetricsServer, error) {
+func (b *Botanist) DefaultMetricsServer() (metricsserver.Interface, error) {
 	image, err := b.ImageVector.FindImage(charts.ImageNameMetricsServer, imagevector.RuntimeVersion(b.ShootVersion()), imagevector.TargetVersion(b.ShootVersion()))
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func (b *Botanist) DefaultMetricsServer() (metricsserver.MetricsServer, error) {
 
 	var kubeAPIServerHost *string
 	if b.APIServerSNIEnabled() {
-		kubeAPIServerHost = pointer.StringPtr(b.outOfClusterAPIServerFQDN())
+		kubeAPIServerHost = pointer.String(b.outOfClusterAPIServerFQDN())
 	}
 
 	return metricsserver.New(

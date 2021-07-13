@@ -20,9 +20,10 @@ import (
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/flow"
-	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -84,15 +84,25 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	namespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: gardenerutils.ComputeGardenNamespace(seed.Name),
+			Name: gutil.ComputeGardenNamespace(seed.Name),
 		},
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.gardenClient, namespace, func() error {
-		namespace.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(seed, gardencorev1beta1.SchemeGroupVersion.WithKind("Seed"))}
-		return nil
-	}); err != nil {
-		return reconcileResult(err)
+	if err := r.gardenClient.Get(ctx, client.ObjectKeyFromObject(namespace), namespace); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return reconcile.Result{}, err
+		}
+
+		// create namespace with controller ref to seed
+		namespace.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(seed, gardencorev1beta1.SchemeGroupVersion.WithKind("Seed"))})
+		if err := r.gardenClient.Create(ctx, namespace); err != nil {
+			return reconcile.Result{}, err
+		}
+	} else {
+		// namespace already exists, check if it has controller ref to seed
+		if !metav1.IsControlledBy(namespace, seed) {
+			return reconcile.Result{}, fmt.Errorf("namespace %q is not controlled by seed %q", namespace.Name, seed.Name)
+		}
 	}
 
 	syncedSecrets, err := r.syncGardenSecrets(ctx, r.gardenClient, namespace)
@@ -109,7 +119,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 var (
 	gardenRoleReq      = utils.MustNewRequirement(v1beta1constants.GardenRole, selection.Exists)
-	gardenRoleSelector = labels.NewSelector().Add(gardenRoleReq).Add(gardenerutils.NoControlPlaneSecretsReq)
+	gardenRoleSelector = labels.NewSelector().Add(gardenRoleReq).Add(gutil.NoControlPlaneSecretsReq)
 )
 
 func (r *reconciler) cleanupStaleSecrets(ctx context.Context, gardenClient client.Client, existingSecrets []string, namespace string) error {
@@ -156,7 +166,7 @@ func (r *reconciler) syncGardenSecrets(ctx context.Context, gardenClient client.
 				},
 			}
 
-			if _, err := controllerutil.CreateOrUpdate(ctx, gardenClient, seedSecret, func() error {
+			if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, gardenClient, seedSecret, func() error {
 				seedSecret.Annotations = secret.Annotations
 				seedSecret.Labels = secret.Labels
 				seedSecret.Data = secret.Data

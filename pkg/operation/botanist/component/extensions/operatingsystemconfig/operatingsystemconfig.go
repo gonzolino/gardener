@@ -24,6 +24,7 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/extensions"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/extensions/operatingsystemconfig/downloader"
@@ -42,7 +43,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
@@ -70,6 +70,10 @@ type Interface interface {
 	SetKubeletCACertificate(string)
 	// SetSSHPublicKey sets the SSHPublicKey value.
 	SetSSHPublicKey(string)
+	// SetPromtailRBACAuthToken set the auth token used by Promtail to authenticate agains the loki sidecar proxy
+	SetPromtailRBACAuthToken(string)
+	// SetLokiIngressHostName sets the ingress host name of the shoot's Loki
+	SetLokiIngressHostName(string)
 	// WorkerNameToOperatingSystemConfigsMap returns a map whose key is a worker name and whose value is a structure
 	// containing both the downloader as well as the original operating system config data.
 	WorkerNameToOperatingSystemConfigsMap() map[string]*OperatingSystemConfigs
@@ -119,6 +123,10 @@ type OriginalValues struct {
 	MachineTypes []gardencorev1beta1.MachineType
 	// SSHPublicKey is a public SSH key.
 	SSHPublicKey string
+	// PromtailRBACAuthToken is the token needed by Promtial to auth agains Loki sidecar proxy
+	PromtailRBACAuthToken string
+	// LokiIngressHostName is the ingress host name of the shoot's Loki
+	LokiIngressHostName string
 }
 
 // New creates a new instance of Interface.
@@ -143,6 +151,7 @@ func New(
 	for _, worker := range values.Workers {
 		osc.workerNameToOSCs[worker.Name] = &OperatingSystemConfigs{}
 	}
+	osc.oscs = make(map[string]*extensionsv1alpha1.OperatingSystemConfig, len(osc.workerNameToOSCs)*2)
 
 	return osc
 }
@@ -157,6 +166,7 @@ type operatingSystemConfig struct {
 
 	lock             sync.Mutex
 	workerNameToOSCs map[string]*OperatingSystemConfigs
+	oscs             map[string]*extensionsv1alpha1.OperatingSystemConfig
 }
 
 // OperatingSystemConfigs contains operating system configs for the downloader script as well as for the original cloud
@@ -180,8 +190,8 @@ type Data struct {
 
 // Deploy uses the client to create or update the OperatingSystemConfig custom resources.
 func (o *operatingSystemConfig) Deploy(ctx context.Context) error {
-	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
-		d := o.newDeployer(worker, purpose)
+	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, osc *extensionsv1alpha1.OperatingSystemConfig, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
+		d := o.newDeployer(osc, worker, purpose)
 		_, err := d.deploy(ctx, v1beta1constants.GardenerOperationReconcile)
 		return err
 	})
@@ -192,9 +202,9 @@ func (o *operatingSystemConfig) Deploy(ctx context.Context) error {
 // Restore uses the seed client and the ShootState to create the OperatingSystemConfig custom resources in the Shoot
 // namespace in the Seed and restore its state.
 func (o *operatingSystemConfig) Restore(ctx context.Context, shootState *v1alpha1.ShootState) error {
-	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
-		d := o.newDeployer(worker, purpose)
-		return extensions.RestoreExtensionWithDeployFunction(ctx, o.client, shootState, extensionsv1alpha1.OperatingSystemConfigResource, o.values.Namespace, d.deploy)
+	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, osc *extensionsv1alpha1.OperatingSystemConfig, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
+		d := o.newDeployer(osc, worker, purpose)
+		return extensions.RestoreExtensionWithDeployFunction(ctx, o.client, shootState, extensionsv1alpha1.OperatingSystemConfigResource, d.deploy)
 	})
 
 	return flow.Parallel(fns...)(ctx)
@@ -204,23 +214,16 @@ func (o *operatingSystemConfig) Restore(ctx context.Context, shootState *v1alpha
 // containing the cloud-config and stores its data which can later be retrieved with the WorkerNameToOperatingSystemConfigsMap
 // method.
 func (o *operatingSystemConfig) Wait(ctx context.Context) error {
-	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
-		return extensions.WaitUntilExtensionCRReady(
-			ctx,
+	fns := o.forEachWorkerPoolAndPurposeTaskFn(func(ctx context.Context, osc *extensionsv1alpha1.OperatingSystemConfig, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
+		return extensions.WaitUntilExtensionObjectReady(ctx,
 			o.client,
 			o.logger,
-			func() client.Object { return &extensionsv1alpha1.OperatingSystemConfig{} },
+			osc,
 			extensionsv1alpha1.OperatingSystemConfigResource,
-			o.values.Namespace,
-			Key(worker.Name, o.values.KubernetesVersion)+purposeToKeySuffix(purpose),
 			o.waitInterval,
 			o.waitSevereThreshold,
 			o.waitTimeout,
-			func(obj client.Object) error {
-				osc, ok := obj.(*extensionsv1alpha1.OperatingSystemConfig)
-				if !ok {
-					return fmt.Errorf("expected extensionsv1alpha1.OperatingSystemConfig but got %T", obj)
-				}
+			func() error {
 				if osc.Status.CloudConfig == nil {
 					return fmt.Errorf("no cloud config information provided in status")
 				}
@@ -258,22 +261,20 @@ func (o *operatingSystemConfig) Wait(ctx context.Context) error {
 
 // Migrate migrates the OperatingSystemConfig custom resources.
 func (o *operatingSystemConfig) Migrate(ctx context.Context) error {
-	return extensions.MigrateExtensionCRs(
+	return extensions.MigrateExtensionObjects(
 		ctx,
 		o.client,
 		&extensionsv1alpha1.OperatingSystemConfigList{},
-		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.OperatingSystemConfig{} },
 		o.values.Namespace,
 	)
 }
 
 // WaitMigrate waits until the OperatingSystemConfig custom resource have been successfully migrated.
 func (o *operatingSystemConfig) WaitMigrate(ctx context.Context) error {
-	return extensions.WaitUntilExtensionCRsMigrated(
+	return extensions.WaitUntilExtensionObjectsMigrated(
 		ctx,
 		o.client,
 		&extensionsv1alpha1.OperatingSystemConfigList{},
-		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.OperatingSystemConfig{} },
 		o.values.Namespace,
 		o.waitInterval,
 		o.waitTimeout,
@@ -286,11 +287,10 @@ func (o *operatingSystemConfig) Destroy(ctx context.Context) error {
 }
 
 func (o *operatingSystemConfig) deleteOperatingSystemConfigResources(ctx context.Context, wantedOSCNames sets.String) error {
-	return extensions.DeleteExtensionCRs(
+	return extensions.DeleteExtensionObjects(
 		ctx,
 		o.client,
 		&extensionsv1alpha1.OperatingSystemConfigList{},
-		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.OperatingSystemConfig{} },
 		o.values.Namespace,
 		func(obj extensionsv1alpha1.Object) bool {
 			return !wantedOSCNames.Has(obj.GetName())
@@ -300,12 +300,11 @@ func (o *operatingSystemConfig) deleteOperatingSystemConfigResources(ctx context
 
 // WaitCleanup waits until the OperatingSystemConfig CRD is deleted
 func (o *operatingSystemConfig) WaitCleanup(ctx context.Context) error {
-	return extensions.WaitUntilExtensionCRsDeleted(
+	return extensions.WaitUntilExtensionObjectsDeleted(
 		ctx,
 		o.client,
 		o.logger,
 		&extensionsv1alpha1.OperatingSystemConfigList{},
-		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.OperatingSystemConfig{} },
 		extensionsv1alpha1.OperatingSystemConfigResource,
 		o.values.Namespace,
 		o.waitInterval,
@@ -318,15 +317,15 @@ func (o *operatingSystemConfig) WaitCleanup(ctx context.Context) error {
 func (o *operatingSystemConfig) DeleteStaleResources(ctx context.Context) error {
 	wantedOSCNames := sets.NewString()
 
-	_ = o.forEachWorkerPoolAndPurpose(ctx, func(_ context.Context, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
-		wantedOSCNames.Insert(Key(worker.Name, o.values.KubernetesVersion) + purposeToKeySuffix(purpose))
+	_ = o.forEachWorkerPoolAndPurpose(func(osc *extensionsv1alpha1.OperatingSystemConfig, _ gardencorev1beta1.Worker, _ extensionsv1alpha1.OperatingSystemConfigPurpose) error {
+		wantedOSCNames.Insert(osc.GetName())
 		return nil
 	})
 
 	return o.deleteOperatingSystemConfigResources(ctx, wantedOSCNames)
 }
 
-func (o *operatingSystemConfig) forEachWorkerPoolAndPurpose(ctx context.Context, fn func(context.Context, gardencorev1beta1.Worker, extensionsv1alpha1.OperatingSystemConfigPurpose) error) error {
+func (o *operatingSystemConfig) forEachWorkerPoolAndPurpose(fn func(*extensionsv1alpha1.OperatingSystemConfig, gardencorev1beta1.Worker, extensionsv1alpha1.OperatingSystemConfigPurpose) error) error {
 	for _, worker := range o.values.Workers {
 		if worker.Machine.Image == nil {
 			continue
@@ -336,7 +335,21 @@ func (o *operatingSystemConfig) forEachWorkerPoolAndPurpose(ctx context.Context,
 			extensionsv1alpha1.OperatingSystemConfigPurposeProvision,
 			extensionsv1alpha1.OperatingSystemConfigPurposeReconcile,
 		} {
-			if err := fn(ctx, worker, purpose); err != nil {
+			oscName := Key(worker.Name, o.values.KubernetesVersion, worker.CRI) + purposeToKeySuffix(purpose)
+
+			osc, ok := o.oscs[oscName]
+			if !ok {
+				osc = &extensionsv1alpha1.OperatingSystemConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      oscName,
+						Namespace: o.values.Namespace,
+					},
+				}
+				// store object for later usage (we want to pass a filled object to WaitUntil*)
+				o.oscs[oscName] = osc
+			}
+
+			if err := fn(osc, worker, purpose); err != nil {
 				return err
 			}
 		}
@@ -345,12 +358,12 @@ func (o *operatingSystemConfig) forEachWorkerPoolAndPurpose(ctx context.Context,
 	return nil
 }
 
-func (o *operatingSystemConfig) forEachWorkerPoolAndPurposeTaskFn(fn func(context.Context, gardencorev1beta1.Worker, extensionsv1alpha1.OperatingSystemConfigPurpose) error) []flow.TaskFn {
+func (o *operatingSystemConfig) forEachWorkerPoolAndPurposeTaskFn(fn func(context.Context, *extensionsv1alpha1.OperatingSystemConfig, gardencorev1beta1.Worker, extensionsv1alpha1.OperatingSystemConfigPurpose) error) []flow.TaskFn {
 	var fns []flow.TaskFn
 
-	_ = o.forEachWorkerPoolAndPurpose(context.Background(), func(_ context.Context, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
+	_ = o.forEachWorkerPoolAndPurpose(func(osc *extensionsv1alpha1.OperatingSystemConfig, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) error {
 		fns = append(fns, func(ctx context.Context) error {
-			return fn(ctx, worker, purpose)
+			return fn(ctx, osc, worker, purpose)
 		})
 		return nil
 	})
@@ -358,7 +371,7 @@ func (o *operatingSystemConfig) forEachWorkerPoolAndPurposeTaskFn(fn func(contex
 	return fns
 }
 
-// AppendCABundle sets the CABundle value.
+// SetCABundle sets the CABundle value.
 func (o *operatingSystemConfig) SetCABundle(val *string) {
 	o.values.CABundle = val
 }
@@ -373,13 +386,23 @@ func (o *operatingSystemConfig) SetSSHPublicKey(key string) {
 	o.values.SSHPublicKey = key
 }
 
+// SetPromtailRBACAuthToken set the auth token used by Promtail to authenticate agains the loki sidecar proxy
+func (o *operatingSystemConfig) SetPromtailRBACAuthToken(token string) {
+	o.values.PromtailRBACAuthToken = token
+}
+
+// SetLokiIngressHostName sets the ingress host name of the shoot's Loki
+func (o *operatingSystemConfig) SetLokiIngressHostName(hostName string) {
+	o.values.LokiIngressHostName = hostName
+}
+
 // WorkerNameToOperatingSystemConfigsMap returns a map whose key is a worker name and whose value is a structure
 // containing both the downloader as well as the original operating system config data.
 func (o *operatingSystemConfig) WorkerNameToOperatingSystemConfigsMap() map[string]*OperatingSystemConfigs {
 	return o.workerNameToOSCs
 }
 
-func (o *operatingSystemConfig) newDeployer(worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) deployer {
+func (o *operatingSystemConfig) newDeployer(osc *extensionsv1alpha1.OperatingSystemConfig, worker gardencorev1beta1.Worker, purpose extensionsv1alpha1.OperatingSystemConfigPurpose) deployer {
 	criName := extensionsv1alpha1.CRINameDocker
 	if worker.CRI != nil {
 		criName = extensionsv1alpha1.CRIName(worker.CRI.Name)
@@ -404,10 +427,10 @@ func (o *operatingSystemConfig) newDeployer(worker gardencorev1beta1.Worker, pur
 
 	return deployer{
 		client:                  o.client,
+		osc:                     osc,
 		worker:                  worker,
 		purpose:                 purpose,
-		key:                     Key(worker.Name, o.values.KubernetesVersion),
-		namespace:               o.values.Namespace,
+		key:                     Key(worker.Name, o.values.KubernetesVersion, worker.CRI),
 		apiServerURL:            o.values.APIServerURL,
 		caBundle:                caBundle,
 		clusterDNSAddress:       o.values.ClusterDNSAddress,
@@ -420,6 +443,8 @@ func (o *operatingSystemConfig) newDeployer(worker gardencorev1beta1.Worker, pur
 		kubeletDataVolumeName:   worker.KubeletDataVolumeName,
 		kubernetesVersion:       o.values.KubernetesVersion,
 		sshPublicKey:            o.values.SSHPublicKey,
+		lokiIngressHostName:     o.values.LokiIngressHostName,
+		promtailRBACAuthToken:   o.values.PromtailRBACAuthToken,
 	}
 }
 
@@ -454,11 +479,12 @@ func setDefaultEvictionMemoryAvailable(evictionHard, evictionSoft map[string]str
 }
 
 type deployer struct {
-	client    client.Client
-	worker    gardencorev1beta1.Worker
-	purpose   extensionsv1alpha1.OperatingSystemConfigPurpose
-	key       string
-	namespace string
+	client client.Client
+	osc    *extensionsv1alpha1.OperatingSystemConfig
+
+	key     string
+	worker  gardencorev1beta1.Worker
+	purpose extensionsv1alpha1.OperatingSystemConfigPurpose
 
 	// downloader values
 	apiServerURL string
@@ -475,6 +501,8 @@ type deployer struct {
 	kubeletDataVolumeName   *string
 	kubernetesVersion       *semver.Version
 	sshPublicKey            string
+	lokiIngressHostName     string
+	promtailRBACAuthToken   string
 }
 
 // exposed for testing
@@ -490,8 +518,6 @@ func (d *deployer) deploy(ctx context.Context, operation string) (extensionsv1al
 		units []extensionsv1alpha1.Unit
 		files []extensionsv1alpha1.File
 		err   error
-
-		name = d.key + purposeToKeySuffix(d.purpose)
 	)
 
 	// The cloud-config-downloader unit is added regardless of the purpose of the OperatingSystemConfig:
@@ -522,6 +548,8 @@ func (d *deployer) deploy(ctx context.Context, operation string) (extensionsv1al
 			KubeletDataVolumeName:   d.kubeletDataVolumeName,
 			KubernetesVersion:       d.kubernetesVersion,
 			SSHPublicKey:            d.sshPublicKey,
+			PromtailRBACAuthToken:   d.promtailRBACAuthToken,
+			LokiIngress:             d.lokiIngressHostName,
 		})
 		if err != nil {
 			return nil, err
@@ -544,7 +572,7 @@ func (d *deployer) deploy(ctx context.Context, operation string) (extensionsv1al
 			files = append(files, downloaderFiles...)
 			files = append(files, extensionsv1alpha1.File{
 				Path:        "/etc/systemd/system/" + downloader.UnitName,
-				Permissions: pointer.Int32Ptr(0644),
+				Permissions: pointer.Int32(0644),
 				Content: extensionsv1alpha1.FileContent{
 					Inline: &extensionsv1alpha1.FileContentInline{
 						Encoding: "b64",
@@ -558,46 +586,48 @@ func (d *deployer) deploy(ctx context.Context, operation string) (extensionsv1al
 		return nil, fmt.Errorf("unknown purpose: %q", d.purpose)
 	}
 
-	osc := &extensionsv1alpha1.OperatingSystemConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: d.namespace,
-		},
-	}
+	// We operate on arrays (units, files) with merge patch without optimistic locking here, meaning this will replace
+	// the arrays as a whole.
+	// However, this is not a problem, as no other client should write to these arrays as the OSC spec is supposed
+	// to be owned by gardenlet exclusively.
+	_, err = controllerutils.GetAndCreateOrMergePatch(ctx, d.client, d.osc, func() error {
+		metav1.SetMetaDataAnnotation(&d.osc.ObjectMeta, v1beta1constants.GardenerOperation, operation)
+		metav1.SetMetaDataAnnotation(&d.osc.ObjectMeta, v1beta1constants.GardenerTimestamp, TimeNow().UTC().String())
 
-	_, err = controllerutil.CreateOrUpdate(ctx, d.client, osc, func() error {
-		metav1.SetMetaDataAnnotation(&osc.ObjectMeta, v1beta1constants.GardenerOperation, operation)
-		metav1.SetMetaDataAnnotation(&osc.ObjectMeta, v1beta1constants.GardenerTimestamp, TimeNow().UTC().String())
-
-		osc.Spec.Type = d.worker.Machine.Image.Name
-		osc.Spec.ProviderConfig = d.worker.Machine.Image.ProviderConfig
-		osc.Spec.Purpose = d.purpose
-		osc.Spec.Units = units
-		osc.Spec.Files = files
+		d.osc.Spec.Type = d.worker.Machine.Image.Name
+		d.osc.Spec.ProviderConfig = d.worker.Machine.Image.ProviderConfig
+		d.osc.Spec.Purpose = d.purpose
+		d.osc.Spec.Units = units
+		d.osc.Spec.Files = files
 
 		if d.worker.CRI != nil {
-			osc.Spec.CRIConfig = &extensionsv1alpha1.CRIConfig{
+			d.osc.Spec.CRIConfig = &extensionsv1alpha1.CRIConfig{
 				Name: extensionsv1alpha1.CRIName(d.worker.CRI.Name),
 			}
 		}
 
 		if d.purpose == extensionsv1alpha1.OperatingSystemConfigPurposeReconcile {
-			osc.Spec.ReloadConfigFilePath = pointer.StringPtr(downloader.PathDownloadedCloudConfig)
+			d.osc.Spec.ReloadConfigFilePath = pointer.String(downloader.PathDownloadedCloudConfig)
 		}
 
 		return nil
 	})
-	return osc, err
+	return d.osc, err
 }
 
-// Key returns the key that can be used as secret name based on the provided worker name and Kubernetes version.
-func Key(workerName string, kubernetesVersion *semver.Version) string {
+// Key returns the key that can be used as secret name based on the provided worker name, Kubernetes version and CRI configuration.
+func Key(workerName string, kubernetesVersion *semver.Version, criConfig *gardencorev1beta1.CRI) string {
 	if kubernetesVersion == nil {
 		return ""
 	}
 
 	kubernetesMajorMinorVersion := fmt.Sprintf("%d.%d", kubernetesVersion.Major(), kubernetesVersion.Minor())
-	return fmt.Sprintf("cloud-config-%s-%s", workerName, utils.ComputeSHA256Hex([]byte(kubernetesMajorMinorVersion))[:5])
+
+	var criName gardencorev1beta1.CRIName
+	if criConfig != nil && criConfig.Name != gardencorev1beta1.CRINameDocker {
+		criName = criConfig.Name
+	}
+	return fmt.Sprintf("cloud-config-%s-%s", workerName, utils.ComputeSHA256Hex([]byte(kubernetesMajorMinorVersion + string(criName)))[:5])
 }
 
 func purposeToKeySuffix(purpose extensionsv1alpha1.OperatingSystemConfigPurpose) string {

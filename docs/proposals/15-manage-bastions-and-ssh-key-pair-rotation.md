@@ -34,7 +34,7 @@ The proposal, as outlined below, suggests to implement the necessary changes in 
 ### Goals
 - Operators can request and will be granted time-limited `ssh` access to shoot cluster nodes via bastion hosts.
 - To that end, requestors must present their public `ssh` key and only this will be installed into `sshd` on the bastion hosts.
-- The bastion hosts will be firewalled and ingress traffic will be permitted only from the client IP of the requestor.
+- The bastion hosts will be firewalled and ingress traffic will be permitted only from the client IP of the requestor. Except for traffic on port 22 to the cluster worker nodes, no egress from the bastion is allowed.
 - The actual node `ssh` private key (resp. key pair) will be rotated by Gardener and access to the nodes is only possible with this constantly rotated key pair and not with the personal one that is used only for the bastion host.
 - Bastion host and access is granted only for the extent of this operator request (of course multiple `ssh` sessions are possible, in parallel or repeatedly, but after "the time is up", access is no longer possible).
 - By these means (personal public key and allow-listed client IP) nobody else can use (a.k.a. impersonate) the requestor (not even other operators).
@@ -53,6 +53,7 @@ The following is a list of involved components, that either need to be newly int
   - New resource type `Bastion`, see [resource example](#resource-example) below
   - New Admission Webhooks for `Bastion` resource
   - `SeedAuthorizer`: The `SeedAuthorizer` and dependency graph needs to be extended to consider the `Bastion` resource https://github.com/gardener/gardener/tree/master/pkg/admissioncontroller/webhooks/auth/seed/graph
+  - Is configured with `timeToLive`, the time to add to the current time on each heartbeat
 - `gardenlet`
   - Deploys `Bastion` CRD under the `extensions.gardener.cloud` API Group to the Seed, see [resource example](#resource-example) below
   - Similar to `BackupBucket`s or `BackupEntry`, the `gardenlet` watches the `Bastion` resource in the garden cluster and creates a seed-local `Bastion` resource, on which the provider specific bastion controller acts upon
@@ -68,7 +69,7 @@ The following is a list of involved components, that either need to be newly int
 - Gardener Controller Manager (`GCM`)
   - `Bastion` heartbeat controller
     - Cleans up `Bastion` resource on missing heartbeat.
-    - Is configured with a `maxLifetime` and `timeToLife` for the `Bastion` resource
+    - Is configured with a `maxLifetime` for the `Bastion` resource
 - Gardener (RBAC)
   - The project `admin` role should be extended to allow CRUD operations on the `Bastion` resource. The `gardener.cloud:system:project-member-aggregation` `ClusterRole` needs to be updated accordingly (https://github.com/gardener/gardener/blob/master/charts/gardener/controlplane/charts/application/templates/rbac-user.yaml)
 
@@ -146,6 +147,8 @@ spec:
       cidr: 1.2.3.4/32 # public IP of the user. CIDR is a string representing the IP Block. Valid examples are "192.168.1.1/24" or "2001:db9::/64"
 
 status:
+  observedGeneration: 1
+
   # the following fields are managed by the controller in the seed and synced by gardenlet
   ingress: # IP or hostname of the bastion
     ip: 1.2.3.5
@@ -185,6 +188,7 @@ spec:
   type: aws # from extensionsv1alpha1.DefaultSpec
 
 status:
+  observedGeneration: 1
   ingress:
     ip: 1.2.3.5
     # hostname: foo.bar

@@ -27,7 +27,7 @@ import (
 var _ = Describe("Monitoring", func() {
 	Describe("#ScrapeConfig", func() {
 		It("should successfully test the scrape configuration", func() {
-			etcd := New(nil, testNamespace, testRole, ClassNormal, true, "", nil)
+			etcd := New(nil, nil, testNamespace, testRole, ClassNormal, true, "", nil)
 			test.ScrapeConfigs(etcd, expectedScrapeConfigEtcd, expectedScrapeConfigBackupRestore)
 		})
 	})
@@ -35,7 +35,7 @@ var _ = Describe("Monitoring", func() {
 	Describe("#AlertingRules", func() {
 		Context("w/o backup", func() {
 			It("should successfully test the alerting rules (normal)", func() {
-				etcd := New(nil, testNamespace, testRole, ClassNormal, true, "", nil)
+				etcd := New(nil, nil, testNamespace, testRole, ClassNormal, true, "", nil)
 				test.AlertingRulesWithPromtool(
 					etcd,
 					map[string]string{fmt.Sprintf("kube-etcd3-%s.rules.yaml", testRole): expectedAlertingRulesNormalWithoutBackup},
@@ -44,7 +44,7 @@ var _ = Describe("Monitoring", func() {
 			})
 
 			It("should successfully test the alerting rules (important)", func() {
-				etcd := New(nil, testNamespace, testRole, ClassImportant, true, "", nil)
+				etcd := New(nil, nil, testNamespace, testRole, ClassImportant, true, "", nil)
 				test.AlertingRulesWithPromtool(
 					etcd,
 					map[string]string{fmt.Sprintf("kube-etcd3-%s.rules.yaml", testRole): expectedAlertingRulesImportantWithoutBackup},
@@ -55,7 +55,7 @@ var _ = Describe("Monitoring", func() {
 
 		Context("w/ backup", func() {
 			It("should successfully test the alerting rules (normal)", func() {
-				etcd := New(nil, testNamespace, testRole, ClassNormal, true, "", nil)
+				etcd := New(nil, nil, testNamespace, testRole, ClassNormal, true, "", nil)
 				etcd.SetBackupConfig(&BackupConfig{})
 				test.AlertingRulesWithPromtool(
 					etcd,
@@ -65,7 +65,7 @@ var _ = Describe("Monitoring", func() {
 			})
 
 			It("should successfully test the alerting rules (important)", func() {
-				etcd := New(nil, testNamespace, testRole, ClassImportant, true, "", nil)
+				etcd := New(nil, nil, testNamespace, testRole, ClassImportant, true, "", nil)
 				etcd.SetBackupConfig(&BackupConfig{})
 				test.AlertingRulesWithPromtool(
 					etcd,
@@ -135,7 +135,7 @@ metric_relabel_configs:
   action: labeldrop
 - source_labels: [ __name__ ]
   action: keep
-  regex: ^(etcdbr_defragmentation_duration_seconds_bucket|etcdbr_defragmentation_duration_seconds_count|etcdbr_defragmentation_duration_seconds_sum|etcdbr_network_received_bytes|etcdbr_network_transmitted_bytes|etcdbr_restoration_duration_seconds_bucket|etcdbr_restoration_duration_seconds_count|etcdbr_restoration_duration_seconds_sum|etcdbr_snapshot_duration_seconds_bucket|etcdbr_snapshot_duration_seconds_count|etcdbr_snapshot_duration_seconds_sum|etcdbr_snapshot_gc_total|etcdbr_snapshot_latest_revision|etcdbr_snapshot_latest_timestamp|etcdbr_snapshot_required|etcdbr_validation_duration_seconds_bucket|etcdbr_validation_duration_seconds_count|etcdbr_validation_duration_seconds_sum|process_resident_memory_bytes|process_cpu_seconds_total)$`
+  regex: ^(etcdbr_defragmentation_duration_seconds_bucket|etcdbr_defragmentation_duration_seconds_count|etcdbr_defragmentation_duration_seconds_sum|etcdbr_network_received_bytes|etcdbr_network_transmitted_bytes|etcdbr_restoration_duration_seconds_bucket|etcdbr_restoration_duration_seconds_count|etcdbr_restoration_duration_seconds_sum|etcdbr_snapshot_duration_seconds_bucket|etcdbr_snapshot_duration_seconds_count|etcdbr_snapshot_duration_seconds_sum|etcdbr_snapshot_gc_total|etcdbr_snapshot_latest_revision|etcdbr_snapshot_latest_timestamp|etcdbr_snapshot_required|etcdbr_validation_duration_seconds_bucket|etcdbr_validation_duration_seconds_count|etcdbr_validation_duration_seconds_sum|etcdbr_snapshotter_failure|process_resident_memory_bytes|process_cpu_seconds_total)$`
 
 	alertingRulesNormal = `groups:
 - name: kube-etcd3-` + testRole + `.rules
@@ -215,6 +215,18 @@ metric_relabel_configs:
         within the last hour.
       summary: High number of failed etcd proposals
 
+  - alert: KubeEtcd3HighMemoryConsumption
+    expr: sum(container_memory_working_set_bytes{pod="etcd-main-0",container="etcd"}) / sum(vpa_spec_container_resource_policy_allowed{allowed="max",container="etcd", targetName="etcd-main", resource="memory"}) > .4
+    for: 15m
+    labels:
+      service: etcd
+      severity: warning
+      type: seed
+      visibility: operator
+    annotations:
+      description: Etcd is consuming over 50% of the max allowed value specified by VPA.
+      summary: Etcd is consuming too much memory
+
   # etcd DB size alerts
   - alert: KubeEtcd3DbSizeLimitApproaching
     expr: (etcd_mvcc_db_total_size_in_bytes{job="kube-etcd3-` + testRole + `"} > bool 7516193000) + (etcd_mvcc_db_total_size_in_bytes{job="kube-etcd3-` + testRole + `"} <= bool 8589935000) == 2 # between 7GB and 8GB
@@ -277,6 +289,19 @@ metric_relabel_configs:
     annotations:
       description: Etcd data restoration was triggered, but has failed.
       summary: Etcd data restoration failure.
+
+  # etcd backup failure alert
+  - alert: KubeEtcdBackupRestore` + testROLE + `Down
+    expr: (sum(up{job="kube-etcd3-` + testRole + `"}) - sum(up{job="kube-etcd3-backup-restore-` + testRole + `"}) > 0) or (rate(etcdbr_snapshotter_failure{job="kube-etcd3-backup-restore-` + testRole + `"}[5m]) > 0)
+    for: 10m
+    labels:
+      service: etcd
+      severity: critical
+      type: seed
+      visibility: operator
+    annotations:
+      description: Etcd backup restore ` + testRole + ` process down or snapshotter failed with error. Backups will not be triggered unless backup restore is brought back up. This is unsafe behaviour and may cause data loss.
+      summary: Etcd backup restore ` + testRole + ` process down or snapshotter failed with error
 `
 
 	expectedAlertingRulesNormalWithoutBackup    = alertingRulesNormal + alertingRulesDefault

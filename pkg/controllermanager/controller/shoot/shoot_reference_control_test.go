@@ -168,9 +168,9 @@ var _ = Describe("Shoot References", func() {
 
 		It("should not add finalizers because shoot does not refer to any secret", func() {
 			shoot.Spec.DNS = &gardencorev1beta1.DNS{
-				Domain: pointer.StringPtr("shoot.example.com"),
+				Domain: pointer.String("shoot.example.com"),
 				Providers: []gardencorev1beta1.DNSProvider{
-					{Type: pointer.StringPtr("managed-dns")},
+					{Type: pointer.String("managed-dns")},
 				},
 			}
 
@@ -205,10 +205,10 @@ var _ = Describe("Shoot References", func() {
 			secretName := secrets[0].Name
 			secretName2 := secrets[1].Name
 			shoot.Spec.DNS = &gardencorev1beta1.DNS{
-				Domain: pointer.StringPtr("shoot.example.com"),
+				Domain: pointer.String("shoot.example.com"),
 				Providers: []gardencorev1beta1.DNSProvider{
-					{Type: pointer.StringPtr("managed-dns"), SecretName: pointer.StringPtr(secretName)},
-					{Type: pointer.StringPtr("managed-dns2"), SecretName: pointer.StringPtr(secretName2)},
+					{Type: pointer.String("managed-dns"), SecretName: pointer.String(secretName)},
+					{Type: pointer.String("managed-dns2"), SecretName: pointer.String(secretName2)},
 				},
 			}
 
@@ -246,14 +246,14 @@ var _ = Describe("Shoot References", func() {
 					return nil
 				})
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, secret *corev1.Secret, _ client.Patch) error {
+				func(_ context.Context, secret *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
 					defer m.Unlock()
 					m.Lock()
 					updatedSecrets = append(updatedSecrets, secret)
 					return nil
 				})
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, secret *corev1.Secret, _ client.Patch) error {
+				func(_ context.Context, secret *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
 					defer m.Unlock()
 					m.Lock()
 					updatedSecrets = append(updatedSecrets, secret)
@@ -262,7 +262,7 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -298,9 +298,9 @@ var _ = Describe("Shoot References", func() {
 			shoot.Finalizers = []string{FinalizerName}
 
 			shoot.Spec.DNS = &gardencorev1beta1.DNS{
-				Domain: pointer.StringPtr("shoot.example.com"),
+				Domain: pointer.String("shoot.example.com"),
 				Providers: []gardencorev1beta1.DNSProvider{
-					{Type: pointer.StringPtr("managed-dns"), SecretName: pointer.StringPtr(secretName)},
+					{Type: pointer.String("managed-dns"), SecretName: pointer.String(secretName)},
 				},
 			}
 
@@ -330,14 +330,14 @@ var _ = Describe("Shoot References", func() {
 					return nil
 				})
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, secret *corev1.Secret, _ client.Patch) error {
+				func(_ context.Context, secret *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
 					updatedSecret = secret
 					return nil
 				})
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -360,10 +360,10 @@ var _ = Describe("Shoot References", func() {
 			shoot.ObjectMeta.DeletionTimestamp = &now
 			shoot.Finalizers = []string{FinalizerName}
 
-			dnsProvider := gardencorev1beta1.DNSProvider{Type: pointer.StringPtr("managed-dns"), SecretName: pointer.StringPtr(secretName)}
+			dnsProvider := gardencorev1beta1.DNSProvider{Type: pointer.String("managed-dns"), SecretName: pointer.String(secretName)}
 
 			shoot.Spec.DNS = &gardencorev1beta1.DNS{
-				Domain:    pointer.StringPtr("shoot.example.com"),
+				Domain:    pointer.String("shoot.example.com"),
 				Providers: []gardencorev1beta1.DNSProvider{dnsProvider},
 			}
 
@@ -400,7 +400,7 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -422,9 +422,9 @@ var _ = Describe("Shoot References", func() {
 			shoot.Finalizers = []string{FinalizerName}
 
 			shoot.Spec.DNS = &gardencorev1beta1.DNS{
-				Domain: pointer.StringPtr("shoot.example.com"),
+				Domain: pointer.String("shoot.example.com"),
 				Providers: []gardencorev1beta1.DNSProvider{
-					{Type: pointer.StringPtr("managed-dns"), SecretName: pointer.StringPtr(secrets[1].Name)},
+					{Type: pointer.String("managed-dns"), SecretName: pointer.String(secrets[1].Name)},
 				},
 			}
 
@@ -455,7 +455,7 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedSecret *corev1.Secret
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.Secret{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, secret *corev1.Secret, _ client.Patch) error {
+				func(_ context.Context, secret *corev1.Secret, _ client.Patch, _ ...client.PatchOption) error {
 					updatedSecret = secret
 					return nil
 				})
@@ -474,7 +474,7 @@ var _ = Describe("Shoot References", func() {
 		var configMaps []corev1.ConfigMap
 
 		BeforeEach(func() {
-			cfg.ProtectAuditPolicyConfigMaps = pointer.BoolPtr(true)
+			cfg.ProtectAuditPolicyConfigMaps = pointer.Bool(true)
 			reconciler = NewShootReferenceReconciler(logger.NewNopLogger(), gardenClient, cfg)
 
 			configMaps = []corev1.ConfigMap{
@@ -566,14 +566,14 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedConfigMap *corev1.ConfigMap
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, configMap *corev1.ConfigMap, _ client.Patch) error {
+				func(_ context.Context, configMap *corev1.ConfigMap, _ client.Patch, _ ...client.PatchOption) error {
 					updatedConfigMap = configMap
 					return nil
 				})
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -637,14 +637,14 @@ var _ = Describe("Shoot References", func() {
 					return nil
 				})
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, cm *corev1.ConfigMap, _ client.Patch) error {
+				func(_ context.Context, cm *corev1.ConfigMap, _ client.Patch, _ ...client.PatchOption) error {
 					updatedConfigMap = cm
 					return nil
 				})
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -711,7 +711,7 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedShoot *gardencorev1beta1.Shoot
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&gardencorev1beta1.Shoot{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch) error {
+				func(_ context.Context, shoot *gardencorev1beta1.Shoot, _ client.Patch, _ ...client.PatchOption) error {
 					updatedShoot = shoot
 					return nil
 				})
@@ -768,7 +768,7 @@ var _ = Describe("Shoot References", func() {
 
 			var updatedConfigMap *corev1.ConfigMap
 			cl.EXPECT().Patch(gomock.Any(), gomock.AssignableToTypeOf(&corev1.ConfigMap{}), gomock.Any()).DoAndReturn(
-				func(_ context.Context, configMap *corev1.ConfigMap, _ client.Patch) error {
+				func(_ context.Context, configMap *corev1.ConfigMap, _ client.Patch, _ ...client.PatchOption) error {
 					updatedConfigMap = configMap
 					return nil
 				})

@@ -20,6 +20,7 @@ import (
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	. "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
+	"github.com/gardener/gardener/pkg/utils/retry"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -28,6 +29,12 @@ import (
 )
 
 var _ = Describe("errors", func() {
+	Describe("#ErrorWithCodes", func() {
+		It("should be marked as a retriable error", func() {
+			Expect(retry.IsRetriable(&ErrorWithCodes{})).To(BeTrue())
+		})
+	})
+
 	DescribeTable("#DetermineError",
 		func(err error, msg string, expectedErr error) {
 			Expect(DetermineError(err, msg)).To(Equal(expectedErr))
@@ -38,8 +45,12 @@ var _ = Describe("errors", func() {
 		Entry("unauthorized", errors.New("unauthorized"), "", NewErrorWithCodes("unauthorized", gardencorev1beta1.ErrorInfraUnauthorized)),
 		Entry("unauthorized with coder", NewErrorWithCodes("", gardencorev1beta1.ErrorInfraUnauthorized), "", NewErrorWithCodes("", gardencorev1beta1.ErrorInfraUnauthorized)),
 		Entry("quota exceeded", errors.New("limitexceeded"), "", NewErrorWithCodes("limitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded)),
+		Entry("quota exceeded", errors.New("foolimitexceeded"), "", NewErrorWithCodes("foolimitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded)),
+		Entry("quota exceeded", errors.New("equestlimitexceeded"), "", NewErrorWithCodes("equestlimitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded)),
+		Entry("quota exceeded", errors.New("subnetlimitexceeded"), "", NewErrorWithCodes("subnetlimitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded)),
 		Entry("quota exceeded with coder", NewErrorWithCodes("limitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded), "", NewErrorWithCodes("limitexceeded", gardencorev1beta1.ErrorInfraQuotaExceeded)),
 		Entry("request throttling", errors.New("message=cannot get hosted zones: Throttling"), "", NewErrorWithCodes("message=cannot get hosted zones: Throttling", gardencorev1beta1.ErrorInfraRateLimitsExceeded)),
+		Entry("request throttling", errors.New("requestlimitexceeded"), "", NewErrorWithCodes("requestlimitexceeded", gardencorev1beta1.ErrorInfraRateLimitsExceeded)),
 		Entry("request throttling coder", NewErrorWithCodes("message=cannot get hosted zones: Throttling", gardencorev1beta1.ErrorInfraRateLimitsExceeded), "", NewErrorWithCodes("message=cannot get hosted zones: Throttling", gardencorev1beta1.ErrorInfraRateLimitsExceeded)),
 		Entry("insufficient privileges", errors.New("accessdenied"), "", NewErrorWithCodes("accessdenied", gardencorev1beta1.ErrorInfraInsufficientPrivileges)),
 		Entry("insufficient privileges with coder", NewErrorWithCodes("accessdenied", gardencorev1beta1.ErrorInfraInsufficientPrivileges), "", NewErrorWithCodes("accessdenied", gardencorev1beta1.ErrorInfraInsufficientPrivileges)),

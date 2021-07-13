@@ -18,19 +18,19 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/logging"
 	. "github.com/gardener/gardener/pkg/operation/common"
 
 	hvpav1alpha1 "github.com/gardener/hvpa-controller/api/v1alpha1"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -194,26 +194,6 @@ var _ = Describe("common", func() {
 			})
 		})
 	})
-
-	DescribeTable("#ReplaceCloudProviderConfigKey",
-		func(key, oldValue, newValue string) {
-			var (
-				separator = ": "
-
-				configWithoutQuotes = fmt.Sprintf("%s%s%s", key, separator, oldValue)
-				configWithQuotes    = fmt.Sprintf("%s%s\"%s\"", key, separator, strings.Replace(oldValue, `"`, `\"`, -1))
-				expected            = fmt.Sprintf("%s%s\"%s\"", key, separator, strings.Replace(newValue, `"`, `\"`, -1))
-			)
-
-			Expect(ReplaceCloudProviderConfigKey(configWithoutQuotes, separator, key, newValue)).To(Equal(expected))
-			Expect(ReplaceCloudProviderConfigKey(configWithQuotes, separator, key, newValue)).To(Equal(expected))
-		},
-
-		Entry("no special characters", "foo", "bar", "baz"),
-		Entry("no special characters", "foo", "bar", "baz"),
-		Entry("with special characters", "foo", `C*ko4P++$"x`, `"$++*ab*$c4k`),
-		Entry("with special characters", "foo", "P+*4", `P*$8uOkv6+4`),
-	)
 
 	Describe("#DeleteDeploymentsHavingDeprecatedRoleLabelKey", func() {
 		var (
@@ -382,6 +362,11 @@ var _ = Describe("common", func() {
 			&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "loki", Namespace: v1beta1constants.GardenNamespace}},
 			&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "loki", Namespace: v1beta1constants.GardenNamespace}},
 			&corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "loki-loki-0", Namespace: v1beta1constants.GardenNamespace}},
+			&extensionsv1beta1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "loki", Namespace: v1beta1constants.GardenNamespace}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: logging.SecretNameLokiKubeRBACProxyKubeconfig, Namespace: v1beta1constants.GardenNamespace}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: LokiTLS, Namespace: v1beta1constants.GardenNamespace}},
+			&networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "allow-from-prometheus-to-loki-telegraf", Namespace: v1beta1constants.GardenNamespace}},
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "telegraf-config", Namespace: v1beta1constants.GardenNamespace}},
 		}
 
 		BeforeEach(func() {

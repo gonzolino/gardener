@@ -26,6 +26,7 @@ import (
 	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/projectrbac"
 	"github.com/gardener/gardener/pkg/utils"
+	gutil "github.com/gardener/gardener/pkg/utils/gardener"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	retryutils "github.com/gardener/gardener/pkg/utils/retry"
 
@@ -37,14 +38,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// NamespacePrefix is the prefix of namespaces representing projects.
-const NamespacePrefix = "garden-"
-
-func (r *projectReconciler) reconcile(ctx context.Context, project *gardencorev1beta1.Project, gardenClient client.Client, gardenAPIReader client.Reader) (reconcile.Result, error) {
+func (r *projectReconciler) reconcile(ctx context.Context, project *gardencorev1beta1.Project, gardenClient client.Client, gardenReader client.Reader) (reconcile.Result, error) {
 	var (
 		generation = project.Generation
 		err        error
@@ -56,7 +53,7 @@ func (r *projectReconciler) reconcile(ctx context.Context, project *gardencorev1
 
 	// Ensure that we really get the latest version of the project to prevent working with an outdated version that has
 	// an unset .spec.namespace field (which would result in trying to create another namespace again).
-	if err := gardenAPIReader.Get(ctx, kutil.Key(project.Name), project); err != nil {
+	if err := gardenReader.Get(ctx, kutil.Key(project.Name), project); err != nil {
 		if apierrors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
@@ -169,7 +166,7 @@ func (r *projectReconciler) reconcileNamespaceForProject(ctx context.Context, ga
 	if namespaceName == nil {
 		obj := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName:    fmt.Sprintf("%s%s-", NamespacePrefix, project.Name),
+				GenerateName:    fmt.Sprintf("%s%s-", gutil.ProjectNamespacePrefix, project.Name),
 				OwnerReferences: []metav1.OwnerReference{*ownerReference},
 				Labels:          projectLabels,
 				Annotations:     projectAnnotations,
@@ -262,8 +259,10 @@ func createOrUpdateResourceQuota(ctx context.Context, c client.Client, projectNa
 		},
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, c, projectResourceQuota, func() error {
+	if _, err := controllerutils.GetAndCreateOrStrategicMergePatch(ctx, c, projectResourceQuota, func() error {
 		projectResourceQuota.SetOwnerReferences(kutil.MergeOwnerReferences(projectResourceQuota.GetOwnerReferences(), *ownerReference))
+		projectResourceQuota.Labels = utils.MergeStringMaps(projectResourceQuota.Labels, resourceQuota.Labels)
+		projectResourceQuota.Annotations = utils.MergeStringMaps(projectResourceQuota.Annotations, resourceQuota.Annotations)
 		quotas := make(map[corev1.ResourceName]resource.Quantity)
 		for resourceName, quantity := range resourceQuota.Spec.Hard {
 			if val, ok := projectResourceQuota.Spec.Hard[resourceName]; ok {

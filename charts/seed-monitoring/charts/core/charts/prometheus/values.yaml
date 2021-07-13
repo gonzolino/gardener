@@ -21,7 +21,7 @@ ingress:
 
 kubernetesVersion: 1.15.1
 
-konnectivityTunnel:
+nodeLocalDNS:
   enabled: false
 
 namespace:
@@ -59,6 +59,7 @@ allowedMetrics:
   - coredns_cache_hits_total
   - coredns_cache_misses_total
   - coredns_dns_request_duration_seconds_count
+  - coredns_dns_request_duration_seconds_bucket
   - coredns_dns_responses_total
   - coredns_forward_requests_total
   - coredns_forward_responses_total
@@ -305,10 +306,10 @@ rules:
     hvpa:
       enabled: false
       rules: false
-    vpn:
-      enabled: false
     loki:
       enabled: true
+    lokiTelegraf:
+      enabled: false
 
 alerting:
   auth_type: {}

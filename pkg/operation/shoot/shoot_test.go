@@ -69,8 +69,8 @@ var _ = Describe("shoot", func() {
 				shoot = &gardencorev1beta1.Shoot{
 					Spec: gardencorev1beta1.ShootSpec{
 						Networking: gardencorev1beta1.Networking{
-							Pods:     pointer.StringPtr("10.0.0.0/24"),
-							Services: pointer.StringPtr("20.0.0.0/24"),
+							Pods:     pointer.String("10.0.0.0/24"),
+							Services: pointer.String("20.0.0.0/24"),
 						},
 					},
 				}
@@ -105,14 +105,14 @@ var _ = Describe("shoot", func() {
 				Entry("services is nil", func(s *gardencorev1beta1.Shoot) { s.Spec.Networking.Services = nil }),
 				Entry("pods is nil", func(s *gardencorev1beta1.Shoot) { s.Spec.Networking.Pods = nil }),
 				Entry("services is invalid", func(s *gardencorev1beta1.Shoot) {
-					s.Spec.Networking.Services = pointer.StringPtr("foo")
+					s.Spec.Networking.Services = pointer.String("foo")
 				}),
-				Entry("pods is invalid", func(s *gardencorev1beta1.Shoot) { s.Spec.Networking.Pods = pointer.StringPtr("foo") }),
+				Entry("pods is invalid", func(s *gardencorev1beta1.Shoot) { s.Spec.Networking.Pods = pointer.String("foo") }),
 				Entry("apiserver cannot be calculated", func(s *gardencorev1beta1.Shoot) {
-					s.Spec.Networking.Services = pointer.StringPtr("10.0.0.0/32")
+					s.Spec.Networking.Services = pointer.String("10.0.0.0/32")
 				}),
 				Entry("coreDNS cannot be calculated", func(s *gardencorev1beta1.Shoot) {
-					s.Spec.Networking.Services = pointer.StringPtr("10.0.0.0/29")
+					s.Spec.Networking.Services = pointer.String("10.0.0.0/29")
 				}),
 			)
 		})
@@ -223,7 +223,7 @@ var _ = Describe("shoot", func() {
 									{
 										Type:       &provider,
 										SecretName: &dnsSecretName,
-										Primary:    pointer.BoolPtr(true),
+										Primary:    pointer.Bool(true),
 									},
 								},
 							},
@@ -287,7 +287,7 @@ var _ = Describe("shoot", func() {
 								Providers: []gardencorev1beta1.DNSProvider{
 									{
 										Type:    &provider,
-										Primary: pointer.BoolPtr(true),
+										Primary: pointer.Bool(true),
 									},
 								},
 							},
@@ -421,7 +421,7 @@ var _ = Describe("shoot", func() {
 								{
 									Kind:            extensionsv1alpha1.ExtensionResource,
 									Type:            extensionType2,
-									GloballyEnabled: pointer.BoolPtr(true),
+									GloballyEnabled: pointer.Bool(true),
 								},
 							},
 						},
@@ -472,98 +472,192 @@ var _ = Describe("shoot", func() {
 					},
 					DNS: &gardencorev1beta1.DNS{
 						Providers: []gardencorev1beta1.DNSProvider{
-							{Type: pointer.StringPtr(dnsProviderType3)},
+							{Type: pointer.String(dnsProviderType3)},
 						},
 					},
 				},
 			}
 		})
 
-		It("should compute the correct list of required extensions", func() {
-			result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain)
+		Context("when not using DNSRecords", func() {
+			It("should compute the correct list of required extensions", func() {
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, false)
 
-			Expect(result).To(Equal(sets.NewString(
-				extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
-				extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
-				extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
-				extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
-			)))
-		})
-
-		It("should compute the correct list of required extensions (no seed backup)", func() {
-			seed.Spec.Backup = nil
-
-			result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain)
-
-			Expect(result).To(Equal(sets.NewString(
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
-				extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
-				extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
-				extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
-			)))
-		})
-
-		It("should compute the correct list of required extensions (seed disables DNS)", func() {
-			seed.Spec.Settings.ShootDNS.Enabled = false
-
-			result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain)
-
-			Expect(result).To(Equal(sets.NewString(
-				extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
-				extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
-				extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
-				extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
-			)))
-		})
-
-		It("should compute the correct list of required extensions (shoot explicitly disables globally enabled extension)", func() {
-			shoot.Spec.Extensions = append(shoot.Spec.Extensions, gardencorev1beta1.Extension{
-				Type:     extensionType2,
-				Disabled: pointer.BoolPtr(true),
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
 			})
 
-			result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain)
+			It("should compute the correct list of required extensions (no seed backup)", func() {
+				seed.Spec.Backup = nil
 
-			Expect(result).To(Equal(sets.NewString(
-				extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
-				extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
-				extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
-				extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
-				extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
-				extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
-				extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
-			)))
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, false)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
+			})
+
+			It("should compute the correct list of required extensions (seed disables DNS)", func() {
+				seed.Spec.Settings.ShootDNS.Enabled = false
+
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, false)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
+			})
+
+			It("should compute the correct list of required extensions (shoot explicitly disables globally enabled extension)", func() {
+				shoot.Spec.Extensions = append(shoot.Spec.Extensions, gardencorev1beta1.Extension{
+					Type:     extensionType2,
+					Disabled: pointer.Bool(true),
+				})
+
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, false)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType1),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+				)))
+			})
+		})
+
+		Context("when using DNSRecords", func() {
+			It("should compute the correct list of required extensions", func() {
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, true)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType1),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
+			})
+
+			It("should compute the correct list of required extensions (no seed backup)", func() {
+				seed.Spec.Backup = nil
+
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, true)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType1),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
+			})
+
+			It("should compute the correct list of required extensions (seed disables DNS)", func() {
+				seed.Spec.Settings.ShootDNS.Enabled = false
+
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, true)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType2),
+				)))
+			})
+
+			It("should compute the correct list of required extensions (shoot explicitly disables globally enabled extension)", func() {
+				shoot.Spec.Extensions = append(shoot.Spec.Extensions, gardencorev1beta1.Extension{
+					Type:     extensionType2,
+					Disabled: pointer.Bool(true),
+				})
+
+				result := ComputeRequiredExtensions(shoot, seed, controllerRegistrationList, internalDomain, externalDomain, true)
+
+				Expect(result).To(Equal(sets.NewString(
+					extensions.Id(extensionsv1alpha1.BackupBucketResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.BackupEntryResource, backupProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, seedProvider),
+					extensions.Id(extensionsv1alpha1.ControlPlaneResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.InfrastructureResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.NetworkResource, networkingType),
+					extensions.Id(extensionsv1alpha1.WorkerResource, shootProvider),
+					extensions.Id(extensionsv1alpha1.ExtensionResource, extensionType1),
+					extensions.Id(extensionsv1alpha1.OperatingSystemConfigResource, oscType),
+					extensions.Id(extensionsv1alpha1.ContainerRuntimeResource, containerRuntimeType),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType1),
+					extensions.Id(extensionsv1alpha1.DNSRecordResource, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType2),
+					extensions.Id(dnsv1alpha1.DNSProviderKind, dnsProviderType3),
+				)))
+			})
 		})
 	})
 })

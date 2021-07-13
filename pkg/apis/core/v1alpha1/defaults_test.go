@@ -131,7 +131,7 @@ var _ = Describe("Defaults", func() {
 		})
 
 		It("should not add the 'protected' toleration if the namespace is not 'garden' (w/o existing project tolerations)", func() {
-			obj.Spec.Namespace = pointer.StringPtr("foo")
+			obj.Spec.Namespace = pointer.String("foo")
 
 			SetDefaults_Project(obj)
 
@@ -139,7 +139,7 @@ var _ = Describe("Defaults", func() {
 		})
 
 		It("should not add the 'protected' toleration if the namespace is not 'garden' (w/ existing project tolerations)", func() {
-			obj.Spec.Namespace = pointer.StringPtr("foo")
+			obj.Spec.Namespace = pointer.String("foo")
 			obj.Spec.Tolerations = &ProjectTolerations{
 				Defaults:  []Toleration{{Key: "foo"}},
 				Whitelist: []Toleration{{Key: "bar"}},
@@ -152,7 +152,7 @@ var _ = Describe("Defaults", func() {
 		})
 
 		It("should add the 'protected' toleration if the namespace is 'garden' (w/o existing project tolerations)", func() {
-			obj.Spec.Namespace = pointer.StringPtr(v1beta1constants.GardenNamespace)
+			obj.Spec.Namespace = pointer.String(v1beta1constants.GardenNamespace)
 			obj.Spec.Tolerations = nil
 
 			SetDefaults_Project(obj)
@@ -162,7 +162,7 @@ var _ = Describe("Defaults", func() {
 		})
 
 		It("should add the 'protected' toleration if the namespace is 'garden' (w/ existing project tolerations)", func() {
-			obj.Spec.Namespace = pointer.StringPtr(v1beta1constants.GardenNamespace)
+			obj.Spec.Namespace = pointer.String(v1beta1constants.GardenNamespace)
 			obj.Spec.Tolerations = &ProjectTolerations{
 				Defaults:  []Toleration{{Key: "foo"}},
 				Whitelist: []Toleration{{Key: "bar"}},
@@ -185,7 +185,7 @@ var _ = Describe("Defaults", func() {
 		})
 
 		It("should not default the primary field", func() {
-			resource := ControllerResource{Primary: pointer.BoolPtr(false)}
+			resource := ControllerResource{Primary: pointer.Bool(false)}
 			resourceCopy := resource.DeepCopy()
 
 			SetDefaults_ControllerResource(&resource)
@@ -320,6 +320,29 @@ var _ = Describe("Defaults", func() {
 			Expect(obj.Spec.Kubernetes.Kubelet.FailSwapOn).To(PointTo(BeFalse()))
 		})
 
+		It("should default the imageGCThreshold fields", func() {
+			SetDefaults_Shoot(obj)
+
+			Expect(obj.Spec.Kubernetes.Kubelet.ImageGCHighThresholdPercent).To(PointTo(Equal(int32(50))))
+			Expect(obj.Spec.Kubernetes.Kubelet.ImageGCLowThresholdPercent).To(PointTo(Equal(int32(40))))
+		})
+
+		It("should not default the imageGCThreshold fields", func() {
+			var (
+				high int32 = 12
+				low  int32 = 34
+			)
+
+			obj.Spec.Kubernetes.Kubelet = &KubeletConfig{}
+			obj.Spec.Kubernetes.Kubelet.ImageGCHighThresholdPercent = &high
+			obj.Spec.Kubernetes.Kubelet.ImageGCLowThresholdPercent = &low
+
+			SetDefaults_Shoot(obj)
+
+			Expect(obj.Spec.Kubernetes.Kubelet.ImageGCHighThresholdPercent).To(PointTo(Equal(high)))
+			Expect(obj.Spec.Kubernetes.Kubelet.ImageGCLowThresholdPercent).To(PointTo(Equal(low)))
+		})
+
 		It("should not default the kube-controller-manager's pod eviction timeout field", func() {
 			podEvictionTimeout := &metav1.Duration{Duration: time.Minute}
 			obj.Spec.Kubernetes.KubeControllerManager = &KubeControllerManagerConfig{PodEvictionTimeout: podEvictionTimeout}
@@ -414,8 +437,8 @@ var _ = Describe("Defaults", func() {
 
 		It("should default the max inflight requests fields", func() {
 			SetDefaults_Shoot(obj)
-			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxNonMutatingInflight).To(Equal(pointer.Int32Ptr(400)))
-			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxMutatingInflight).To(Equal(pointer.Int32Ptr(200)))
+			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxNonMutatingInflight).To(Equal(pointer.Int32(400)))
+			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxMutatingInflight).To(Equal(pointer.Int32(200)))
 		})
 
 		It("should not default the max inflight requests fields", func() {
@@ -431,6 +454,43 @@ var _ = Describe("Defaults", func() {
 			SetDefaults_Shoot(obj)
 			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxNonMutatingInflight).To(Equal(&maxNonMutatingRequestsInflight))
 			Expect(obj.Spec.Kubernetes.KubeAPIServer.Requests.MaxMutatingInflight).To(Equal(&maxMutatingRequestsInflight))
+		})
+
+		It("should disable anonymous authentication by default", func() {
+			SetDefaults_Shoot(obj)
+			Expect(obj.Spec.Kubernetes.KubeAPIServer.EnableAnonymousAuthentication).To(PointTo(BeFalse()))
+		})
+
+		It("should not default the anonymous authentication field if it is explicitly set", func() {
+			trueVar := true
+			obj.Spec.Kubernetes.KubeAPIServer = &KubeAPIServerConfig{EnableAnonymousAuthentication: &trueVar}
+			SetDefaults_Shoot(obj)
+			Expect(obj.Spec.Kubernetes.KubeAPIServer.EnableAnonymousAuthentication).To(PointTo(BeTrue()))
+		})
+
+		It("should default cri.name for k8s versions >=1.22 to containerd", func() {
+			obj.Spec.Kubernetes.Version = "1.22"
+			obj.Spec.Provider.Workers = []Worker{
+				{Name: "DefaultWorker"},
+				{Name: "Worker with CRI configuration",
+					CRI: &CRI{Name: CRIName("some configured value")}},
+			}
+			SetDefaults_Shoot(obj)
+			Expect(obj.Spec.Provider.Workers[0].CRI).ToNot(BeNil())
+			Expect(obj.Spec.Provider.Workers[0].CRI.Name).To(Equal(CRINameContainerD))
+			Expect(obj.Spec.Provider.Workers[1].CRI.Name).To(BeEquivalentTo("some configured value"))
+		})
+
+		It("should not default cri.name for k8s versions <1.22", func() {
+			obj.Spec.Kubernetes.Version = "1.21"
+			obj.Spec.Provider.Workers = []Worker{
+				{Name: "DefaultWorker"},
+				{Name: "Worker with CRI configuration",
+					CRI: &CRI{Name: CRIName("some configured value")}},
+			}
+			SetDefaults_Shoot(obj)
+			Expect(obj.Spec.Provider.Workers[0].CRI).To(BeNil())
+			Expect(obj.Spec.Provider.Workers[1].CRI.Name).To(BeEquivalentTo("some configured value"))
 		})
 	})
 
